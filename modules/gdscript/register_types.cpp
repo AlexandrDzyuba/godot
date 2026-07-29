@@ -52,10 +52,12 @@
 #include "tests/test_gdscript.h"
 #endif
 
+#include "core/crypto/crypto_core.h"
 #include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
 #include "core/object/class_db.h"
+#include "core/os/os.h"
 
 #ifdef TOOLS_ENABLED
 #include "editor/editor_node.h"
@@ -85,10 +87,34 @@ class EditorExportGDScript : public EditorExportPlugin {
 
 	static constexpr EditorExportPreset::ScriptExportMode DEFAULT_SCRIPT_MODE = EditorExportPreset::MODE_SCRIPT_BINARY_TOKENS_COMPRESSED;
 	EditorExportPreset::ScriptExportMode script_mode = DEFAULT_SCRIPT_MODE;
+	uint64_t build_seed = 0;
+	uint64_t file_counter = 0;
+
+	static _FORCE_INLINE_ uint64_t _mix_seed(uint64_t p_value) {
+		p_value ^= p_value >> 30;
+		p_value *= 0xBF58476D1CE4E5B9ULL;
+		p_value ^= p_value >> 27;
+		p_value *= 0x94D049BB133111EBULL;
+		p_value ^= p_value >> 31;
+		return p_value;
+	}
 
 protected:
 	virtual void _export_begin(const HashSet<String> &p_features, bool p_debug, const String &p_path, int p_flags) override {
 		script_mode = DEFAULT_SCRIPT_MODE;
+		file_counter = 0;
+		build_seed = 0;
+
+		CryptoCore::RandomGenerator random_generator;
+		if (random_generator.init() == OK) {
+			random_generator.get_random_bytes(reinterpret_cast<uint8_t *>(&build_seed), sizeof(build_seed));
+		}
+		if (build_seed == 0) {
+			build_seed = _mix_seed(uint64_t(OS::get_singleton()->get_ticks_usec()) ^ (uint64_t(p_path.hash()) << 32) ^ uint64_t(p_flags));
+		}
+		if (build_seed == 0) {
+			build_seed = 0x9E3779B97F4A7C15ULL;
+		}
 
 		const Ref<EditorExportPreset> &preset = get_export_preset();
 		if (preset.is_valid()) {
@@ -108,7 +134,14 @@ protected:
 
 		String source = String::utf8(reinterpret_cast<const char *>(file.ptr()), file.size());
 		GDScriptTokenizerBuffer::CompressMode compress_mode = script_mode == EditorExportPreset::MODE_SCRIPT_BINARY_TOKENS_COMPRESSED ? GDScriptTokenizerBuffer::COMPRESS_ZSTD : GDScriptTokenizerBuffer::COMPRESS_NONE;
-		file = GDScriptTokenizerBuffer::parse_code_string(source, compress_mode);
+
+		file_counter++;
+		uint64_t file_nonce = _mix_seed(build_seed ^ (file_counter * 0x9E3779B97F4A7C15ULL) ^ (uint64_t(p_path.hash()) << 32) ^ uint64_t(file.size()));
+		if (file_nonce == 0) {
+			file_nonce = 0xA5F1523B9C47D06EULL;
+		}
+
+		file = GDScriptTokenizerBuffer::parse_code_string(source, compress_mode, build_seed, file_nonce);
 		if (file.is_empty()) {
 			return;
 		}

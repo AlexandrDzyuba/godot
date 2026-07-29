@@ -38,7 +38,7 @@
 #include "core/templates/list.h"
 
 // Godot's packed file magic header ("GDPC" in ASCII).
-#define PACK_HEADER_MAGIC 0x43504447
+#define PACK_HEADER_MAGIC 0x4B505243
 
 #define PACK_FORMAT_VERSION_V2 2
 #define PACK_FORMAT_VERSION_V3 3
