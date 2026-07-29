@@ -51,6 +51,9 @@ enum PackFlags {
 	PACK_DIR_ENCRYPTED = 1 << 0,
 	PACK_REL_FILEBASE = 1 << 1,
 	PACK_SPARSE_BUNDLE = 1 << 2,
+	// The directory metadata and every file payload use the engine-specific
+	// random-access obfuscation layer. This is intentionally separate from AES.
+	PACK_OBFUSCATED = 1 << 3,
 };
 
 enum PackFileFlags {
@@ -60,6 +63,21 @@ enum PackFileFlags {
 };
 
 class PackSource;
+
+static constexpr uint64_t PCK_OBFUSCATION_STREAM_STEP = UINT64_C(0x9E3779B97F4A7C15);
+static constexpr uint64_t PCK_OBFUSCATION_DIRECTORY_DOMAIN = UINT64_C(0x4449524543544F52);
+static constexpr uint64_t PCK_OBFUSCATION_PATH_DOMAIN = UINT64_C(0x504154485F425954);
+static constexpr uint64_t PCK_OBFUSCATION_OFFSET_DOMAIN = UINT64_C(0x4F46465345545F5F);
+static constexpr uint64_t PCK_OBFUSCATION_SIZE_DOMAIN = UINT64_C(0x53495A455F5F5F5F);
+static constexpr uint64_t PCK_OBFUSCATION_MD5_DOMAIN = UINT64_C(0x4D44355F48415348);
+static constexpr uint64_t PCK_OBFUSCATION_FLAGS_DOMAIN = UINT64_C(0x464C4147535F5F5F);
+
+// These helpers implement a symmetric, random-access byte transformation used
+// by PACK_OBFUSCATED. Defining PCK_OBFUSCATION_KEY at build time lets forks use
+// a project-specific key. The editor and export templates must use the same key.
+uint64_t pck_obfuscation_mask(uint64_t p_value);
+uint64_t pck_obfuscation_path_key(const String &p_path);
+void pck_obfuscation_transform(uint8_t *p_data, uint64_t p_length, uint64_t p_key, uint64_t p_offset = 0);
 
 class PackedData {
 	friend class FileAccessPack;
@@ -71,11 +89,13 @@ public:
 		String pack;
 		uint64_t offset; //if offset is ZERO, the file was ERASED
 		uint64_t size;
+		uint64_t obfuscation_key;
 		uint8_t md5[16];
 		PackSource *src = nullptr;
 		bool encrypted;
 		bool bundle;
 		bool delta;
+		bool obfuscated;
 		String salt;
 	};
 
@@ -131,7 +151,7 @@ private:
 
 public:
 	void add_pack_source(PackSource *p_source);
-	void add_path(const String &p_pkg_path, const String &p_path, uint64_t p_ofs, uint64_t p_size, const uint8_t *p_md5, PackSource *p_src, bool p_replace_files, bool p_encrypted = false, bool p_bundle = false, bool p_delta = false, const String &p_salt = String()); // for PackSource
+	void add_path(const String &p_pkg_path, const String &p_path, uint64_t p_ofs, uint64_t p_size, const uint8_t *p_md5, PackSource *p_src, bool p_replace_files, bool p_encrypted = false, bool p_bundle = false, bool p_delta = false, const String &p_salt = String(), bool p_obfuscated = false); // for PackSource
 	void remove_path(const String &p_path);
 	uint8_t *get_file_hash(const String &p_path);
 	Vector<PackedFile> get_delta_patches(const String &p_path) const;
@@ -187,6 +207,7 @@ class FileAccessPack : public FileAccess {
 	mutable uint64_t pos;
 	mutable bool eof;
 	uint64_t off;
+	uint64_t obfuscation_key = 0;
 
 	Ref<FileAccess> f;
 	virtual Error open_internal(const String &p_path, int p_mode_flags) override;

@@ -36,6 +36,50 @@
 #include "core/os/os.h"
 #include "core/version.h"
 
+#ifndef PCK_OBFUSCATION_KEY
+#define PCK_OBFUSCATION_KEY UINT64_C(0xA7C31F9D5E2846B0)
+#endif
+
+static constexpr uint64_t PCK_OBFUSCATION_CONTENT_DOMAIN = UINT64_C(0x434F4E54454E5453);
+
+uint64_t pck_obfuscation_mask(uint64_t p_value) {
+	uint64_t value = p_value ^ PCK_OBFUSCATION_KEY;
+	value += PCK_OBFUSCATION_STREAM_STEP;
+	value = (value ^ (value >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
+	value = (value ^ (value >> 27)) * UINT64_C(0x94D049BB133111EB);
+	return value ^ (value >> 31);
+}
+
+uint64_t pck_obfuscation_path_key(const String &p_path) {
+	CharString path = p_path.simplify_path().trim_prefix("res://").utf8();
+	uint64_t hash = UINT64_C(0xCBF29CE484222325) ^ PCK_OBFUSCATION_CONTENT_DOMAIN;
+	for (int64_t i = 0; i < path.length(); i++) {
+		hash ^= uint8_t(path[i]);
+		hash *= UINT64_C(0x100000001B3);
+	}
+	return pck_obfuscation_mask(hash);
+}
+
+void pck_obfuscation_transform(uint8_t *p_data, uint64_t p_length, uint64_t p_key, uint64_t p_offset) {
+	if (p_length == 0) {
+		return;
+	}
+	ERR_FAIL_NULL(p_data);
+
+	uint64_t i = 0;
+	while (i < p_length) {
+		const uint64_t stream_position = p_offset + i;
+		const uint64_t block = stream_position >> 3;
+		const uint64_t mask = pck_obfuscation_mask(p_key + block * PCK_OBFUSCATION_STREAM_STEP);
+		const uint64_t byte_in_block = stream_position & 7;
+		const uint64_t chunk_size = MIN(UINT64_C(8) - byte_in_block, p_length - i);
+		for (uint64_t j = 0; j < chunk_size; j++) {
+			p_data[i + j] ^= uint8_t(mask >> ((byte_in_block + j) * 8));
+		}
+		i += chunk_size;
+	}
+}
+
 Error PackedData::add_pack(const String &p_path, bool p_replace_files, uint64_t p_offset, const Vector<uint8_t> &p_decryption_key) {
 	for (int i = 0; i < sources.size(); i++) {
 		if (sources[i]->try_open_pack(p_path, p_replace_files, p_offset, p_decryption_key)) {
@@ -46,7 +90,7 @@ Error PackedData::add_pack(const String &p_path, bool p_replace_files, uint64_t 
 	return ERR_FILE_UNRECOGNIZED;
 }
 
-void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64_t p_ofs, uint64_t p_size, const uint8_t *p_md5, PackSource *p_src, bool p_replace_files, bool p_encrypted, bool p_bundle, bool p_delta, const String &p_salt) {
+void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64_t p_ofs, uint64_t p_size, const uint8_t *p_md5, PackSource *p_src, bool p_replace_files, bool p_encrypted, bool p_bundle, bool p_delta, const String &p_salt, bool p_obfuscated) {
 	String simplified_path = p_path.simplify_path().trim_prefix("res://");
 	PathMD5 pmd5(simplified_path.md5_buffer());
 
@@ -56,10 +100,12 @@ void PackedData::add_path(const String &p_pkg_path, const String &p_path, uint64
 	pf.encrypted = p_encrypted;
 	pf.bundle = p_bundle;
 	pf.delta = p_delta;
+	pf.obfuscated = p_obfuscated;
 	pf.pack = p_pkg_path;
 	pf.salt = p_salt;
 	pf.offset = p_ofs;
 	pf.size = p_size;
+	pf.obfuscation_key = p_obfuscated ? pck_obfuscation_path_key(simplified_path) : 0;
 	for (int i = 0; i < 16; i++) {
 		pf.md5[i] = p_md5[i];
 	}
@@ -299,6 +345,7 @@ bool PackedSourcePCK::try_open_pack(const String &p_path, bool p_replace_files, 
 	bool enc_directory = (pack_flags & PACK_DIR_ENCRYPTED);
 	bool rel_filebase = (pack_flags & PACK_REL_FILEBASE); // Note: Always enabled for V3.
 	bool sparse_bundle = (pack_flags & PACK_SPARSE_BUNDLE);
+	bool obfuscated = (pack_flags & PACK_OBFUSCATED);
 	String salt;
 
 	uint64_t file_base = f->get_64();
@@ -323,7 +370,10 @@ bool PackedSourcePCK::try_open_pack(const String &p_path, bool p_replace_files, 
 	}
 
 	// Read directory.
-	int file_count = f->get_32();
+	uint32_t stored_file_count = f->get_32();
+	uint32_t decoded_file_count = obfuscated ? stored_file_count ^ uint32_t(pck_obfuscation_mask(PCK_OBFUSCATION_DIRECTORY_DOMAIN)) : stored_file_count;
+	ERR_FAIL_COND_V_MSG(decoded_file_count > (1U << 24), false, "Invalid PCK directory file count.");
+	int file_count = int(decoded_file_count);
 	if (enc_directory) {
 		Ref<FileAccessEncrypted> fae;
 		fae.instantiate();
@@ -350,10 +400,18 @@ bool PackedSourcePCK::try_open_pack(const String &p_path, bool p_replace_files, 
 	}
 
 	for (int i = 0; i < file_count; i++) {
+		const uint64_t entry_key = PCK_OBFUSCATION_DIRECTORY_DOMAIN + uint64_t(i) * PCK_OBFUSCATION_STREAM_STEP;
 		uint32_t sl = f->get_32();
+		if (obfuscated) {
+			sl ^= uint32_t(pck_obfuscation_mask(entry_key));
+		}
+		ERR_FAIL_COND_V_MSG(sl > (1U << 24) || f->get_position() > f->get_length() || sl > f->get_length() - f->get_position(), false, "Invalid PCK directory path length.");
 		CharString cs;
 		cs.resize_uninitialized(sl + 1);
 		f->get_buffer((uint8_t *)cs.ptr(), sl);
+		if (obfuscated && sl > 0) {
+			pck_obfuscation_transform((uint8_t *)cs.ptrw(), sl, entry_key ^ PCK_OBFUSCATION_PATH_DOMAIN);
+		}
 		cs[sl] = 0;
 
 		String path = String::utf8(cs.ptr(), sl);
@@ -362,11 +420,17 @@ bool PackedSourcePCK::try_open_pack(const String &p_path, bool p_replace_files, 
 		uint8_t md5[16];
 		f->get_buffer(md5, 16);
 		uint32_t flags = f->get_32();
+		if (obfuscated) {
+			ofs ^= pck_obfuscation_mask(entry_key ^ PCK_OBFUSCATION_OFFSET_DOMAIN);
+			size ^= pck_obfuscation_mask(entry_key ^ PCK_OBFUSCATION_SIZE_DOMAIN);
+			pck_obfuscation_transform(md5, 16, entry_key ^ PCK_OBFUSCATION_MD5_DOMAIN);
+			flags ^= uint32_t(pck_obfuscation_mask(entry_key ^ PCK_OBFUSCATION_FLAGS_DOMAIN));
+		}
 
 		if (flags & PACK_FILE_REMOVAL) { // The file was removed.
 			PackedData::get_singleton()->remove_path(path);
 		} else {
-			PackedData::get_singleton()->add_path(p_path, path, file_base + ofs, size, md5, this, p_replace_files, (flags & PACK_FILE_ENCRYPTED), sparse_bundle, (flags & PACK_FILE_DELTA), salt);
+			PackedData::get_singleton()->add_path(p_path, path, file_base + ofs, size, md5, this, p_replace_files, (flags & PACK_FILE_ENCRYPTED), sparse_bundle, (flags & PACK_FILE_DELTA), salt, obfuscated);
 		}
 	}
 
@@ -483,12 +547,14 @@ uint64_t FileAccessPack::get_buffer(uint8_t *p_dst, uint64_t p_length) const {
 		to_read = (int64_t)pf.size - (int64_t)pos;
 	}
 
-	pos += to_read;
-
 	if (to_read <= 0) {
 		return 0;
 	}
 	f->get_buffer(p_dst, to_read);
+	if (pf.obfuscated) {
+		pck_obfuscation_transform(p_dst, to_read, obfuscation_key, pos);
+	}
+	pos += to_read;
 
 	return to_read;
 }
@@ -526,6 +592,9 @@ void FileAccessPack::close() {
 FileAccessPack::FileAccessPack(const String &p_path, const PackedData::PackedFile &p_file, const Vector<uint8_t> &p_decryption_key) {
 	path = p_path;
 	pf = p_file;
+	if (pf.obfuscated) {
+		obfuscation_key = pf.obfuscation_key;
+	}
 	if (pf.bundle) {
 		String simplified_path = p_path.simplify_path();
 		String path_to_load = simplified_path;

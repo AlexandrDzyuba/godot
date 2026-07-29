@@ -93,6 +93,7 @@ private:
 
 	String enc_in_filters;
 	String enc_ex_filters;
+	bool obfuscate_pck = false;
 	bool enc_pck = false;
 	bool enc_directory = false;
 	uint64_t seed = 0;
@@ -199,6 +200,9 @@ public:
 
 	void set_enc_pck(bool p_enabled);
 	bool get_enc_pck() const;
+
+	void set_obfuscate_pck(bool p_enabled);
+	bool get_obfuscate_pck() const;
 
 	void set_enc_directory(bool p_enabled);
 	bool get_enc_directory() const;
