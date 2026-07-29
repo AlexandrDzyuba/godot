@@ -189,6 +189,7 @@ class ProjectExportDialog : public ConfirmationDialog {
 	EditorFileDialog *export_pck_zip = nullptr;
 	EditorFileDialog *export_project = nullptr;
 
+	CheckButton *obfuscate_pck = nullptr;
 	CheckButton *enc_pck = nullptr;
 	CheckButton *enc_directory = nullptr;
 	LineEdit *enc_in_filters = nullptr;
@@ -214,6 +215,7 @@ class ProjectExportDialog : public ConfirmationDialog {
 	bool updating_script_key = false;
 	bool updating_enc_filters = false;
 	bool updating_seed = false;
+	void _obfuscate_pck_changed(bool p_pressed);
 	void _enc_pck_changed(bool p_pressed);
 	void _enc_directory_changed(bool p_pressed);
 	void _enc_filters_changed(const String &p_text);

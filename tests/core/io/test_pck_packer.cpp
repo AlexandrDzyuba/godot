@@ -33,6 +33,7 @@
 TEST_FORCE_LINK(test_pck_packer)
 
 #include "core/io/file_access.h"
+#include "core/io/file_access_pack.h"
 #include "core/io/pck_packer.h"
 #include "core/os/os.h"
 #include "tests/test_utils.h"
@@ -118,6 +119,53 @@ TEST_CASE("[PCKPacker] Pack a PCK file with some files and directories") {
 	CHECK_MESSAGE(
 			f->get_length() <= 27000,
 			"The generated non-empty PCK file shouldn't be too large.");
+}
+
+TEST_CASE("[PCKPacker] Obfuscated PCK hides metadata and supports random-access reads") {
+	PCKPacker pck_packer;
+	const String output_pck_path = TestUtils::get_temp_path("output_obfuscated.pck");
+	const String packed_path = "private/config/obfuscation_test.txt";
+	const Vector<uint8_t> original_data = String("0123456789: this payload must not be stored as plaintext.").to_utf8_buffer();
+	const String zero_key = "0000000000000000000000000000000000000000000000000000000000000000";
+
+	REQUIRE(pck_packer.pck_start(output_pck_path, 32, zero_key, false, true) == OK);
+	REQUIRE(pck_packer.add_file_from_buffer(packed_path, original_data) == OK);
+	REQUIRE(pck_packer.flush() == OK);
+
+	const Vector<uint8_t> raw_pack = FileAccess::get_file_as_bytes(output_pck_path);
+	auto contains_bytes = [&raw_pack](const Vector<uint8_t> &p_needle) {
+		if (p_needle.is_empty() || p_needle.size() > raw_pack.size()) {
+			return false;
+		}
+		for (int64_t i = 0; i <= raw_pack.size() - p_needle.size(); i++) {
+			if (memcmp(raw_pack.ptr() + i, p_needle.ptr(), p_needle.size()) == 0) {
+				return true;
+			}
+		}
+		return false;
+	};
+
+	CHECK_FALSE(contains_bytes(packed_path.to_utf8_buffer()));
+	CHECK_FALSE(contains_bytes(original_data));
+
+	PackedData *packed_data = PackedData::get_singleton();
+	REQUIRE(packed_data != nullptr);
+	const Error add_pack_error = packed_data->add_pack(output_pck_path, true, 0);
+	CHECK(add_pack_error == OK);
+
+	Ref<FileAccess> packed_file;
+	if (add_pack_error == OK) {
+		packed_file = packed_data->try_open_path("res://" + packed_path);
+		CHECK(packed_file.is_valid());
+		if (packed_file.is_valid()) {
+			packed_file->seek(11);
+			Vector<uint8_t> tail = packed_file->get_buffer(original_data.size() - 11);
+			CHECK(tail == original_data.slice(11));
+		}
+	}
+
+	packed_file.unref();
+	packed_data->clear();
 }
 
 } // namespace TestPCKPacker

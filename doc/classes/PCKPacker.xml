@@ -64,8 +64,10 @@
 			<param index="1" name="alignment" type="int" default="32" />
 			<param index="2" name="key" type="String" default="&quot;0000000000000000000000000000000000000000000000000000000000000000&quot;" />
 			<param index="3" name="encrypt_directory" type="bool" default="false" />
+			<param index="4" name="obfuscate" type="bool" default="false" />
 			<description>
 				Creates a new PCK file at the file path [param pck_path]. The [code].pck[/code] file extension isn't added automatically, so it should be part of [param pck_path] (even though it's not required).
+				If [param obfuscate] is [code]true[/code], directory metadata and file payloads use the engine-specific random-access obfuscation layer. Only export templates built from the same customized engine can read the resulting PCK. This is an additional reverse-engineering barrier, not a substitute for encryption.
 			</description>
 		</method>
 	</methods>

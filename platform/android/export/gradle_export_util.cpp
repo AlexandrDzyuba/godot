@@ -32,6 +32,7 @@
 
 #include "core/io/dir_access.h"
 #include "core/io/file_access.h"
+#include "core/io/file_access_pack.h"
 #include "core/os/os.h"
 #include "core/string/translation_server.h"
 #include "editor/export/editor_export.h"
@@ -183,7 +184,7 @@ Error rename_and_store_file_in_gradle_project(const Ref<EditorExportPreset> &p_p
 
 	Vector<uint8_t> enc_data;
 	EditorExportPlatform::SavedData sd;
-	Error err = _store_temp_file(simplified_path, p_data, p_enc_in_filters, p_enc_ex_filters, p_key, p_seed, p_delta, enc_data, sd);
+	Error err = _store_temp_file(simplified_path, p_data, p_enc_in_filters, p_enc_ex_filters, p_key, p_seed, p_delta, p_preset->get_obfuscate_pck(), enc_data, sd);
 	if (err != OK) {
 		return err;
 	}
@@ -415,7 +416,7 @@ String _get_application_tag(const Ref<EditorExportPlatform> &p_export_platform, 
 	return manifest_application_text;
 }
 
-Error _store_temp_file(const String &p_simplified_path, const Vector<uint8_t> &p_data, const Vector<String> &p_enc_in_filters, const Vector<String> &p_enc_ex_filters, const Vector<uint8_t> &p_key, uint64_t p_seed, bool p_delta, Vector<uint8_t> &r_enc_data, EditorExportPlatform::SavedData &r_sd) {
+Error _store_temp_file(const String &p_simplified_path, const Vector<uint8_t> &p_data, const Vector<String> &p_enc_in_filters, const Vector<String> &p_enc_ex_filters, const Vector<uint8_t> &p_key, uint64_t p_seed, bool p_delta, bool p_obfuscated, Vector<uint8_t> &r_enc_data, EditorExportPlatform::SavedData &r_sd) {
 	Error err = OK;
 	Ref<FileAccess> ftmp = FileAccess::create_temp(FileAccess::WRITE_READ, "export", "tmp", false, &err);
 	if (err != OK) {
@@ -425,7 +426,11 @@ Error _store_temp_file(const String &p_simplified_path, const Vector<uint8_t> &p
 	r_sd.ofs = 0;
 	r_sd.size = p_data.size();
 	r_sd.delta = p_delta;
-	err = EditorExportPlatform::_encrypt_and_store_data(ftmp, p_simplified_path, p_data, p_enc_in_filters, p_enc_ex_filters, p_key, p_seed, r_sd.encrypted);
+	Vector<uint8_t> stored_data = p_data;
+	if (p_obfuscated) {
+		pck_obfuscation_transform(stored_data.ptrw(), stored_data.size(), pck_obfuscation_path_key(p_simplified_path));
+	}
+	err = EditorExportPlatform::_encrypt_and_store_data(ftmp, p_simplified_path, stored_data, p_enc_in_filters, p_enc_ex_filters, p_key, p_seed, r_sd.encrypted);
 	if (err != OK) {
 		return err;
 	}

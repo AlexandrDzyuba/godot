@@ -837,7 +837,7 @@ Error EditorExportPlatformAndroid::save_apk_file(const Ref<EditorExportPreset> &
 
 	Vector<uint8_t> enc_data;
 	EditorExportPlatform::SavedData sd;
-	Error err = _store_temp_file(simplified_path, p_data, p_enc_in_filters, p_enc_ex_filters, p_key, p_seed, p_delta, enc_data, sd);
+	Error err = _store_temp_file(simplified_path, p_data, p_enc_in_filters, p_enc_ex_filters, p_key, p_seed, p_delta, p_preset->get_obfuscate_pck(), enc_data, sd);
 	if (err != OK) {
 		return err;
 	}
@@ -3619,7 +3619,8 @@ Error EditorExportPlatformAndroid::_generate_sparse_pck_metadata(const Ref<Edito
 	int64_t pck_start_pos = ftmp->get_position();
 	uint64_t file_base_ofs = 0;
 	uint64_t dir_base_ofs = 0;
-	EditorExportPlatform::_store_header(ftmp, p_preset->get_enc_pck() && p_preset->get_enc_directory(), true, file_base_ofs, dir_base_ofs, p_pack_data.salt);
+	p_pack_data.obfuscated = p_preset->get_obfuscate_pck();
+	EditorExportPlatform::_store_header(ftmp, p_preset->get_enc_pck() && p_preset->get_enc_directory(), true, p_pack_data.obfuscated, file_base_ofs, dir_base_ofs, p_pack_data.salt);
 
 	// Write directory.
 	uint64_t dir_offset = ftmp->get_position();
@@ -3821,6 +3822,7 @@ Error EditorExportPlatformAndroid::export_project_helper(const Ref<EditorExportP
 		} else {
 			user_data.pd.path = "assets.sparsepck";
 			user_data.pd.use_sparse_pck = true;
+			user_data.pd.obfuscated = p_preset->get_obfuscate_pck();
 			if (p_preset->get_enc_directory()) {
 				RandomPCG rng = RandomPCG(p_preset->get_seed());
 				for (int i = 0; i < 32; i++) {
@@ -4333,6 +4335,7 @@ Error EditorExportPlatformAndroid::export_project_helper(const Ref<EditorExportP
 		ed.apk = unaligned_apk;
 		ed.pd.path = "assets.sparsepck";
 		ed.pd.use_sparse_pck = true;
+		ed.pd.obfuscated = p_preset->get_obfuscate_pck();
 		if (p_preset->get_enc_directory()) {
 			RandomPCG rng = RandomPCG(p_preset->get_seed());
 			for (int i = 0; i < 32; i++) {

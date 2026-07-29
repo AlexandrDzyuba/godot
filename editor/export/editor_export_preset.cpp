@@ -113,6 +113,7 @@ void EditorExportPreset::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_export_path"), &EditorExportPreset::get_export_path);
 	ClassDB::bind_method(D_METHOD("get_encryption_in_filter"), &EditorExportPreset::get_enc_in_filter);
 	ClassDB::bind_method(D_METHOD("get_encryption_ex_filter"), &EditorExportPreset::get_enc_ex_filter);
+	ClassDB::bind_method(D_METHOD("get_obfuscate_pck"), &EditorExportPreset::get_obfuscate_pck);
 	ClassDB::bind_method(D_METHOD("get_encrypt_pck"), &EditorExportPreset::get_enc_pck);
 	ClassDB::bind_method(D_METHOD("get_encrypt_directory"), &EditorExportPreset::get_enc_directory);
 	ClassDB::bind_method(D_METHOD("get_encryption_key"), &EditorExportPreset::get_script_encryption_key);
@@ -542,6 +543,15 @@ void EditorExportPreset::set_enc_pck(bool p_enabled) {
 
 bool EditorExportPreset::get_enc_pck() const {
 	return enc_pck;
+}
+
+void EditorExportPreset::set_obfuscate_pck(bool p_enabled) {
+	obfuscate_pck = p_enabled;
+	EditorExport::singleton->save_presets();
+}
+
+bool EditorExportPreset::get_obfuscate_pck() const {
+	return obfuscate_pck;
 }
 
 void EditorExportPreset::set_enc_directory(bool p_enabled) {

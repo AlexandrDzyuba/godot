@@ -417,6 +417,7 @@ void ProjectExportDialog::_edit_preset(int p_index) {
 
 	bool enc_pck_mode = current->get_enc_pck();
 	enc_pck->set_pressed(enc_pck_mode);
+	obfuscate_pck->set_pressed(current->get_obfuscate_pck());
 
 	uint64_t seed = current->get_seed();
 	if (!updating_seed) {
@@ -658,6 +659,17 @@ void ProjectExportDialog::_enc_pck_changed(bool p_pressed) {
 	_update_current_preset();
 }
 
+void ProjectExportDialog::_obfuscate_pck_changed(bool p_pressed) {
+	if (updating) {
+		return;
+	}
+
+	Ref<EditorExportPreset> current = get_current_preset();
+	ERR_FAIL_COND(current.is_null());
+
+	current->set_obfuscate_pck(p_pressed);
+}
+
 void ProjectExportDialog::_seed_input_changed(const String &p_text) {
 	if (updating) {
 		return;
@@ -776,6 +788,7 @@ void ProjectExportDialog::_duplicate_preset() {
 	preset->set_custom_features(current->get_custom_features());
 	preset->set_enc_in_filter(current->get_enc_in_filter());
 	preset->set_enc_ex_filter(current->get_enc_ex_filter());
+	preset->set_obfuscate_pck(current->get_obfuscate_pck());
 	preset->set_enc_pck(current->get_enc_pck());
 	preset->set_enc_directory(current->get_enc_directory());
 	preset->set_script_encryption_key(current->get_script_encryption_key());
@@ -1862,6 +1875,12 @@ ProjectExportDialog::ProjectExportDialog() {
 	VBoxContainer *sec_vb = memnew(VBoxContainer);
 	sec_vb->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	sec_scroll_container->add_child(sec_vb);
+
+	obfuscate_pck = memnew(CheckButton);
+	obfuscate_pck->connect(SceneStringName(toggled), callable_mp(this, &ProjectExportDialog::_obfuscate_pck_changed));
+	obfuscate_pck->set_text(TTRC("Obfuscate Exported PCK"));
+	obfuscate_pck->set_tooltip_text(TTRC("Obfuscates the PCK index and file payloads using the custom engine format. This does not require built-in PCK encryption."));
+	sec_vb->add_child(obfuscate_pck);
 
 	enc_pck = memnew(CheckButton);
 	enc_pck->connect(SceneStringName(toggled), callable_mp(this, &ProjectExportDialog::_enc_pck_changed));

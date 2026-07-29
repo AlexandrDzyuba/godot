@@ -99,6 +99,7 @@ void EditorExport::_save() {
 		config->set_value(section, "encryption_exclude_filters", preset->get_enc_ex_filter());
 		config->set_value(section, "seed", preset->get_seed());
 
+		config->set_value(section, "obfuscate_pck", preset->get_obfuscate_pck());
 		config->set_value(section, "encrypt_pck", preset->get_enc_pck());
 		config->set_value(section, "encrypt_directory", preset->get_enc_directory());
 		config->set_value(section, "script_export_mode", preset->get_script_export_mode());
@@ -402,6 +403,9 @@ void EditorExport::load_config() {
 		}
 		if (config->has_section_key(section, "encrypt_pck")) {
 			preset->set_enc_pck(config->get_value(section, "encrypt_pck"));
+		}
+		if (config->has_section_key(section, "obfuscate_pck")) {
+			preset->set_obfuscate_pck(config->get_value(section, "obfuscate_pck"));
 		}
 		if (config->has_section_key(section, "encrypt_directory")) {
 			preset->set_enc_directory(config->get_value(section, "encrypt_directory"));

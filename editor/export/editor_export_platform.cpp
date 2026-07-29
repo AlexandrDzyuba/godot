@@ -447,7 +447,11 @@ Error EditorExportPlatform::_save_pack_file(const Ref<EditorExportPreset> &p_pre
 	sd.ofs = (pd->use_sparse_pck) ? 0 : pd->f->get_position();
 	sd.size = p_data.size();
 	sd.delta = p_delta;
-	Error err = _encrypt_and_store_data(ftmp, simplified_path, p_data, p_enc_in_filters, p_enc_ex_filters, p_key, p_seed, sd.encrypted);
+	Vector<uint8_t> stored_data = p_data;
+	if (pd->obfuscated) {
+		pck_obfuscation_transform(stored_data.ptrw(), stored_data.size(), pck_obfuscation_path_key(simplified_path));
+	}
+	Error err = _encrypt_and_store_data(ftmp, simplified_path, stored_data, p_enc_in_filters, p_enc_ex_filters, p_key, p_seed, sd.encrypted);
 	if (err != OK) {
 		return err;
 	}
@@ -2174,7 +2178,7 @@ Dictionary EditorExportPlatform::_save_zip_patch(const Ref<EditorExportPreset> &
 	return ret;
 }
 
-bool EditorExportPlatform::_store_header(Ref<FileAccess> p_fd, bool p_enc, bool p_sparse, uint64_t &r_file_base_ofs, uint64_t &r_dir_base_ofs, const String &p_salt) {
+bool EditorExportPlatform::_store_header(Ref<FileAccess> p_fd, bool p_enc, bool p_sparse, bool p_obfuscated, uint64_t &r_file_base_ofs, uint64_t &r_dir_base_ofs, const String &p_salt) {
 	p_fd->store_32(PACK_HEADER_MAGIC);
 	p_fd->store_32(PACK_FORMAT_VERSION);
 	p_fd->store_32(GODOT_VERSION_MAJOR);
@@ -2187,6 +2191,9 @@ bool EditorExportPlatform::_store_header(Ref<FileAccess> p_fd, bool p_enc, bool 
 	}
 	if (p_sparse) {
 		pack_flags |= PACK_SPARSE_BUNDLE;
+	}
+	if (p_obfuscated) {
+		pack_flags |= PACK_OBFUSCATED;
 	}
 	p_fd->store_32(pack_flags); // Flags.
 
@@ -2217,7 +2224,8 @@ bool EditorExportPlatform::_encrypt_and_store_directory(Ref<FileAccess> p_fd, Pa
 	Ref<FileAccessEncrypted> fae;
 	Ref<FileAccess> fhead = p_fd;
 
-	fhead->store_32(p_pack_data.file_ofs.size()); //amount of files
+	const uint32_t stored_file_count = p_pack_data.obfuscated ? uint32_t(p_pack_data.file_ofs.size()) ^ uint32_t(pck_obfuscation_mask(PCK_OBFUSCATION_DIRECTORY_DOMAIN)) : uint32_t(p_pack_data.file_ofs.size());
+	fhead->store_32(stored_file_count); // Amount of files.
 
 	if (!p_key.is_empty()) {
 		uint64_t seed = p_seed;
@@ -2256,16 +2264,35 @@ bool EditorExportPlatform::_encrypt_and_store_directory(Ref<FileAccess> p_fd, Pa
 	for (int i = 0; i < p_pack_data.file_ofs.size(); i++) {
 		uint32_t string_len = p_pack_data.file_ofs[i].path_utf8.length();
 		uint32_t pad = _get_pad(4, string_len);
+		const uint64_t entry_key = PCK_OBFUSCATION_DIRECTORY_DOMAIN + uint64_t(i) * PCK_OBFUSCATION_STREAM_STEP;
 
-		fhead->store_32(string_len + pad);
-		fhead->store_buffer((const uint8_t *)p_pack_data.file_ofs[i].path_utf8.get_data(), string_len);
-		for (uint32_t j = 0; j < pad; j++) {
-			fhead->store_8(0);
+		const uint32_t stored_string_len = p_pack_data.obfuscated ? (string_len + pad) ^ uint32_t(pck_obfuscation_mask(entry_key)) : string_len + pad;
+		fhead->store_32(stored_string_len);
+		if (p_pack_data.obfuscated) {
+			Vector<uint8_t> path_data;
+			path_data.resize(string_len + pad);
+			memcpy(path_data.ptrw(), p_pack_data.file_ofs[i].path_utf8.get_data(), string_len);
+			memset(path_data.ptrw() + string_len, 0, pad);
+			pck_obfuscation_transform(path_data.ptrw(), path_data.size(), entry_key ^ PCK_OBFUSCATION_PATH_DOMAIN);
+			fhead->store_buffer(path_data);
+		} else {
+			fhead->store_buffer((const uint8_t *)p_pack_data.file_ofs[i].path_utf8.get_data(), string_len);
+			for (uint32_t j = 0; j < pad; j++) {
+				fhead->store_8(0);
+			}
 		}
 
-		fhead->store_64(p_pack_data.file_ofs[i].ofs - p_file_base);
-		fhead->store_64(p_pack_data.file_ofs[i].size); // pay attention here, this is where file is
-		fhead->store_buffer(p_pack_data.file_ofs[i].md5.ptr(), 16); //also save md5 for file
+		const uint64_t stored_offset = p_pack_data.obfuscated ? (p_pack_data.file_ofs[i].ofs - p_file_base) ^ pck_obfuscation_mask(entry_key ^ PCK_OBFUSCATION_OFFSET_DOMAIN) : p_pack_data.file_ofs[i].ofs - p_file_base;
+		const uint64_t stored_size = p_pack_data.obfuscated ? p_pack_data.file_ofs[i].size ^ pck_obfuscation_mask(entry_key ^ PCK_OBFUSCATION_SIZE_DOMAIN) : p_pack_data.file_ofs[i].size;
+		fhead->store_64(stored_offset);
+		fhead->store_64(stored_size);
+		if (p_pack_data.obfuscated) {
+			Vector<uint8_t> stored_md5 = p_pack_data.file_ofs[i].md5;
+			pck_obfuscation_transform(stored_md5.ptrw(), stored_md5.size(), entry_key ^ PCK_OBFUSCATION_MD5_DOMAIN);
+			fhead->store_buffer(stored_md5);
+		} else {
+			fhead->store_buffer(p_pack_data.file_ofs[i].md5.ptr(), 16);
+		}
 		uint32_t flags = 0;
 		if (p_pack_data.file_ofs[i].encrypted) {
 			flags |= PACK_FILE_ENCRYPTED;
@@ -2276,7 +2303,8 @@ bool EditorExportPlatform::_encrypt_and_store_directory(Ref<FileAccess> p_fd, Pa
 		if (p_pack_data.file_ofs[i].delta) {
 			flags |= PACK_FILE_DELTA;
 		}
-		fhead->store_32(flags);
+		const uint32_t stored_flags = p_pack_data.obfuscated ? flags ^ uint32_t(pck_obfuscation_mask(entry_key ^ PCK_OBFUSCATION_FLAGS_DOMAIN)) : flags;
+		fhead->store_32(stored_flags);
 	}
 
 	if (fae.is_valid()) {
@@ -2332,7 +2360,8 @@ Error EditorExportPlatform::save_pack(const Ref<EditorExportPreset> &p_preset, b
 	uint64_t file_base_ofs = 0;
 	uint64_t dir_base_ofs = 0;
 
-	_store_header(f, p_preset->get_enc_pck() && p_preset->get_enc_directory(), false, file_base_ofs, dir_base_ofs, String());
+	const bool obfuscate = p_preset->get_obfuscate_pck();
+	_store_header(f, p_preset->get_enc_pck() && p_preset->get_enc_directory(), false, obfuscate, file_base_ofs, dir_base_ofs, String());
 
 	// Align for first file.
 	int file_padding = _get_pad(PCK_PADDING, f->get_position());
@@ -2351,6 +2380,7 @@ Error EditorExportPlatform::save_pack(const Ref<EditorExportPreset> &p_preset, b
 	pd.f = f;
 	pd.so_files = p_so_files;
 	pd.path = p_path;
+	pd.obfuscated = obfuscate;
 
 	Error err = export_project_files(p_preset, p_debug, p_save_func, p_remove_func, &pd, _pack_add_shared_object);
 
