@@ -51,6 +51,8 @@ public:
 	HashMap<int, int> token_columns;
 	Vector<Token> tokens;
 	int current = 0;
+	uint32_t token_decode_multiplier = 1;
+	uint32_t token_decode_offset = 0;
 	uint32_t current_line = 1;
 
 	bool multiline_mode = false;
@@ -63,12 +65,12 @@ public:
 	HashMap<int, CommentData> dummy;
 #endif // TOOLS_ENABLED
 
-	static int _token_to_binary(const Token &p_token, Vector<uint8_t> &r_buffer, int p_start, HashMap<StringName, uint32_t> &r_identifiers_map, HashMap<Variant, uint32_t> &r_constants_map);
+	static int _token_to_binary(const Token &p_token, Vector<uint8_t> &r_buffer, int p_start, HashMap<StringName, uint32_t> &r_identifiers_map, HashMap<Variant, uint32_t> &r_constants_map, uint32_t p_token_multiplier, uint32_t p_token_offset);
 	Token _binary_to_token(const uint8_t *p_buffer);
 
 public:
 	Error set_code_buffer(const Vector<uint8_t> &p_buffer);
-	static Vector<uint8_t> parse_code_string(const String &p_code, CompressMode p_compress_mode);
+	static Vector<uint8_t> parse_code_string(const String &p_code, CompressMode p_compress_mode, uint64_t p_build_seed = 0, uint64_t p_file_nonce = 0);
 
 	virtual int get_cursor_line() const override;
 	virtual int get_cursor_column() const override;
