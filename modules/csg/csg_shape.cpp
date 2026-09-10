@@ -37,10 +37,7 @@
 #include "scene/main/scene_tree.h"
 #include "scene/resources/3d/navigation_mesh_source_geometry_data_3d.h"
 #include "scene/resources/navigation_mesh.h"
-
-#ifndef PHYSICS_3D_DISABLED
-#include "servers/rendering/rendering_server.h" // Only used for debug collision shapes.
-#endif // PHYSICS_3D_DISABLED
+#include "servers/rendering/rendering_server.h"
 
 #ifdef DEV_ENABLED
 #include "core/io/json.h"
@@ -208,7 +205,6 @@ void CSGShape3D::set_collision_priority(real_t p_priority) {
 real_t CSGShape3D::get_collision_priority() const {
 	return collision_priority;
 }
-#endif // PHYSICS_3D_DISABLED
 
 void CSGShape3D::set_autosmooth(bool p_smooth) {
 	autosmooth = p_smooth;
@@ -228,6 +224,8 @@ void CSGShape3D::set_smoothing_angle(const float p_angle) {
 float CSGShape3D::get_smoothing_angle() const {
 	return smoothing_angle;
 }
+
+#endif // PHYSICS_3D_DISABLED
 
 bool CSGShape3D::is_root_shape() const {
 	return !parent_shape;
@@ -275,6 +273,26 @@ enum ManifoldProperty {
 	MANIFOLD_PROPERTY_SMOOTH_GROUP,
 	MANIFOLD_PROPERTY_UV_X_0,
 	MANIFOLD_PROPERTY_UV_Y_0,
+	MANIFOLD_PROPERTY_COLOR_R,
+	MANIFOLD_PROPERTY_COLOR_G,
+	MANIFOLD_PROPERTY_COLOR_B,
+	MANIFOLD_PROPERTY_COLOR_A,
+	MANIFOLD_PROPERTY_CUSTOM_0_X,
+	MANIFOLD_PROPERTY_CUSTOM_0_Y,
+	MANIFOLD_PROPERTY_CUSTOM_0_Z,
+	MANIFOLD_PROPERTY_CUSTOM_0_W,
+	MANIFOLD_PROPERTY_CUSTOM_1_X,
+	MANIFOLD_PROPERTY_CUSTOM_1_Y,
+	MANIFOLD_PROPERTY_CUSTOM_1_Z,
+	MANIFOLD_PROPERTY_CUSTOM_1_W,
+	MANIFOLD_PROPERTY_CUSTOM_2_X,
+	MANIFOLD_PROPERTY_CUSTOM_2_Y,
+	MANIFOLD_PROPERTY_CUSTOM_2_Z,
+	MANIFOLD_PROPERTY_CUSTOM_2_W,
+	MANIFOLD_PROPERTY_CUSTOM_3_X,
+	MANIFOLD_PROPERTY_CUSTOM_3_Y,
+	MANIFOLD_PROPERTY_CUSTOM_3_Z,
+	MANIFOLD_PROPERTY_CUSTOM_3_W,
 	MANIFOLD_PROPERTY_MAX
 };
 
@@ -322,6 +340,19 @@ static void _unpack_manifold(
 				face.uvs[tri_order_i] = Vector2(
 						mesh.vertProperties[property_i * mesh.numProp + MANIFOLD_PROPERTY_UV_X_0],
 						mesh.vertProperties[property_i * mesh.numProp + MANIFOLD_PROPERTY_UV_Y_0]);
+				face.colors[tri_order_i] = Color(
+						mesh.vertProperties[property_i * mesh.numProp + MANIFOLD_PROPERTY_COLOR_R],
+						mesh.vertProperties[property_i * mesh.numProp + MANIFOLD_PROPERTY_COLOR_G],
+						mesh.vertProperties[property_i * mesh.numProp + MANIFOLD_PROPERTY_COLOR_B],
+						mesh.vertProperties[property_i * mesh.numProp + MANIFOLD_PROPERTY_COLOR_A]);
+				for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+					const int property_offset = MANIFOLD_PROPERTY_CUSTOM_0_X + custom_i * 4;
+					face.customs[custom_i][tri_order_i] = Vector4(
+							mesh.vertProperties[property_i * mesh.numProp + property_offset + 0],
+							mesh.vertProperties[property_i * mesh.numProp + property_offset + 1],
+							mesh.vertProperties[property_i * mesh.numProp + property_offset + 2],
+							mesh.vertProperties[property_i * mesh.numProp + property_offset + 3]);
+				}
 			}
 			r_mesh_merge->faces.push_back(face);
 		}
@@ -449,6 +480,17 @@ static void _pack_manifold(
 				vert[MANIFOLD_PROPERTY_UV_Y_0] = face.uvs[i].y;
 				vert[MANIFOLD_PROPERTY_SMOOTH_GROUP] = face.smooth ? 1.0f : 0.0f;
 				vert[MANIFOLD_PROPERTY_INVERT] = face.invert ? 1.0f : 0.0f;
+				vert[MANIFOLD_PROPERTY_COLOR_R] = face.colors[i].r;
+				vert[MANIFOLD_PROPERTY_COLOR_G] = face.colors[i].g;
+				vert[MANIFOLD_PROPERTY_COLOR_B] = face.colors[i].b;
+				vert[MANIFOLD_PROPERTY_COLOR_A] = face.colors[i].a;
+				for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+					const int property_offset = MANIFOLD_PROPERTY_CUSTOM_0_X + custom_i * 4;
+					vert[property_offset + 0] = face.customs[custom_i][i].x;
+					vert[property_offset + 1] = face.customs[custom_i][i].y;
+					vert[property_offset + 2] = face.customs[custom_i][i].z;
+					vert[property_offset + 3] = face.customs[custom_i][i].w;
+				}
 			}
 		}
 	}
@@ -491,6 +533,19 @@ CSGBrush *CSGShape3D::_get_brush() {
 	}
 	brush = nullptr;
 	CSGBrush *n = _build_brush();
+	bool has_colors = n && n->has_colors;
+	uint32_t custom_channels = n ? n->custom_channels : 0;
+	Mesh::ArrayCustomFormat custom_formats[CSGBrush::CUSTOM_CHANNEL_COUNT] = {
+		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
+		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
+		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
+		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
+	};
+	if (n) {
+		for (int i = 0; i < CSGBrush::CUSTOM_CHANNEL_COUNT; i++) {
+			custom_formats[i] = n->custom_formats[i];
+		}
+	}
 	HashMap<int32_t, Ref<Material>> mesh_materials;
 	manifold::Manifold root_manifold;
 	_pack_manifold(n, root_manifold, mesh_materials, this);
@@ -506,6 +561,17 @@ CSGBrush *CSGShape3D::_get_brush() {
 		if (!child_brush) {
 			continue;
 		}
+		has_colors |= child_brush->has_colors;
+		for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+			if (child_brush->custom_channels & (1u << custom_i)) {
+				if (custom_channels & (1u << custom_i)) {
+					ERR_CONTINUE_MSG(custom_formats[custom_i] != child_brush->custom_formats[custom_i], "CSG custom channel formats must match across Boolean operands.");
+				}
+				custom_channels |= 1u << custom_i;
+				custom_formats[custom_i] = child_brush->custom_formats[custom_i];
+			}
+		}
+
 		CSGBrush transformed_brush;
 		transformed_brush.copy_from(*child_brush, child->get_transform());
 		manifold::Manifold child_manifold;
@@ -525,8 +591,27 @@ CSGBrush *CSGShape3D::_get_brush() {
 			memdelete(n);
 		}
 		n = memnew(CSGBrush);
+		n->has_colors = has_colors;
+		n->custom_channels = custom_channels;
+		for (int i = 0; i < CSGBrush::CUSTOM_CHANNEL_COUNT; i++) {
+			n->custom_formats[i] = custom_formats[i];
+		}
 		_unpack_manifold(manifold_result, mesh_materials, n);
 	}
+
+	if (n && !modifiers.is_empty()) {
+		Ref<CSGModifierContext> context;
+		context.instantiate();
+		context->setup(n);
+		for (int i = 0; i < modifiers.size(); i++) {
+			Ref<CSGModifier> modifier = modifiers[i];
+			if (modifier.is_valid()) {
+				modifier->process(context);
+			}
+		}
+		n->_regen_face_aabbs();
+	}
+
 	AABB aabb;
 	if (n && !n->faces.is_empty()) {
 		aabb.position = n->faces[0].vertices[0];
@@ -597,6 +682,46 @@ void CSGShape3D::mikktSetTSpaceDefault(const SMikkTSpaceContext *pContext, const
 	surface.tansw[i++] = d < 0 ? -1 : 1;
 }
 
+
+static Variant _csg_pack_custom_array(const Vector<Vector4> &p_values, Mesh::ArrayCustomFormat p_format) {
+	if (p_format >= Mesh::ARRAY_CUSTOM_R_FLOAT) {
+		const int components = int(p_format) - int(Mesh::ARRAY_CUSTOM_R_FLOAT) + 1;
+		PackedFloat32Array result;
+		result.resize(p_values.size() * components);
+		float *resultw = result.ptrw();
+		for (int i = 0; i < p_values.size(); i++) {
+			for (int component = 0; component < components; component++) {
+				resultw[i * components + component] = p_values[i][component];
+			}
+		}
+		return result;
+	}
+
+	const bool half = p_format == Mesh::ARRAY_CUSTOM_RG_HALF || p_format == Mesh::ARRAY_CUSTOM_RGBA_HALF;
+	const int components = p_format == Mesh::ARRAY_CUSTOM_RG_HALF ? 2 : 4;
+	const int component_size = half ? 2 : 1;
+	PackedByteArray result;
+	result.resize(p_values.size() * components * component_size);
+	uint8_t *resultw = result.ptrw();
+
+	for (int i = 0; i < p_values.size(); i++) {
+		for (int component = 0; component < components; component++) {
+			const float value = p_values[i][component];
+			const int offset = (i * components + component) * component_size;
+			if (half) {
+				const uint16_t encoded = Math::make_half_float(value);
+				resultw[offset + 0] = encoded & 0xff;
+				resultw[offset + 1] = encoded >> 8;
+			} else if (p_format == Mesh::ARRAY_CUSTOM_RGBA8_SNORM) {
+				resultw[offset] = uint8_t(int8_t(CLAMP(Math::round(value * 127.0f), -127.0f, 127.0f)));
+			} else {
+				resultw[offset] = uint8_t(CLAMP(Math::round(value * 255.0f), 0.0f, 255.0f));
+			}
+		}
+	}
+	return result;
+}
+
 void CSGShape3D::update_shape() {
 	if (!is_root_shape()) {
 		return;
@@ -654,12 +779,23 @@ void CSGShape3D::update_shape() {
 		array[Mesh::ARRAY_VERTEX] = surfaces[i].vertices;
 		array[Mesh::ARRAY_NORMAL] = surfaces[i].normals;
 		array[Mesh::ARRAY_TEX_UV] = surfaces[i].uvs;
+		if (n->has_colors) {
+			array[Mesh::ARRAY_COLOR] = surfaces[i].colors;
+		}
 		if (have_tangents) {
 			array[Mesh::ARRAY_TANGENT] = surfaces[i].tans;
 		}
 
+		uint64_t format_flags = 0;
+		for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+			if (n->custom_channels & (1u << custom_i)) {
+				array[Mesh::ARRAY_CUSTOM0 + custom_i] = _csg_pack_custom_array(surfaces[i].customs[custom_i], n->custom_formats[custom_i]);
+				format_flags |= uint64_t(n->custom_formats[custom_i]) << (Mesh::ARRAY_FORMAT_CUSTOM0_SHIFT + custom_i * Mesh::ARRAY_FORMAT_CUSTOM_BITS);
+			}
+		}
+
 		int idx = root_mesh->get_surface_count();
-		root_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, array);
+		root_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, array, Array(), Dictionary(), format_flags);
 		root_mesh->surface_set_material(idx, surfaces[i].material);
 	}
 
@@ -733,6 +869,14 @@ void CSGShape3D::_build_surfaces_smoothed(CSGBrush *p_brush, Vector<CSGShape3D::
 		r_surfaces.write[i].vertices.resize(r_face_count[i] * 3);
 		r_surfaces.write[i].normals.resize(r_face_count[i] * 3);
 		r_surfaces.write[i].uvs.resize(r_face_count[i] * 3);
+		if (p_brush->has_colors) {
+			r_surfaces.write[i].colors.resize(r_face_count[i] * 3);
+		}
+		for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+			if (p_brush->custom_channels & (1u << custom_i)) {
+				r_surfaces.write[i].customs[custom_i].resize(r_face_count[i] * 3);
+			}
+		}
 		if (calculate_tangents) {
 			r_surfaces.write[i].tans.resize(r_face_count[i] * 3 * 4);
 		}
@@ -745,6 +889,14 @@ void CSGShape3D::_build_surfaces_smoothed(CSGBrush *p_brush, Vector<CSGShape3D::
 		r_surfaces.write[i].verticesw = r_surfaces.write[i].vertices.ptrw();
 		r_surfaces.write[i].normalsw = r_surfaces.write[i].normals.ptrw();
 		r_surfaces.write[i].uvsw = r_surfaces.write[i].uvs.ptrw();
+		if (p_brush->has_colors) {
+			r_surfaces.write[i].colorsw = r_surfaces.write[i].colors.ptrw();
+		}
+		for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+			if (p_brush->custom_channels & (1u << custom_i)) {
+				r_surfaces.write[i].customsw[custom_i] = r_surfaces.write[i].customs[custom_i].ptrw();
+			}
+		}
 		if (calculate_tangents) {
 			r_surfaces.write[i].tansw = r_surfaces.write[i].tans.ptrw();
 		}
@@ -780,6 +932,14 @@ void CSGShape3D::_build_surfaces_smoothed(CSGBrush *p_brush, Vector<CSGShape3D::
 				r_surfaces[idx].verticesw[k] = v;
 				r_surfaces[idx].uvsw[k] = p_brush->faces[i].uvs[j];
 				r_surfaces[idx].normalsw[k] = normal;
+				if (p_brush->has_colors) {
+					r_surfaces[idx].colorsw[k] = p_brush->faces[i].colors[j];
+				}
+				for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+					if (p_brush->custom_channels & (1u << custom_i)) {
+						r_surfaces[idx].customsw[custom_i][k] = p_brush->faces[i].customs[custom_i][j];
+					}
+				}
 
 				if (calculate_tangents) {
 					// zero out our tangents for now
@@ -827,6 +987,14 @@ void CSGShape3D::_build_surfaces_default(CSGBrush *p_brush, Vector<CSGShape3D::S
 		r_surfaces.write[i].vertices.resize(r_face_count[i] * 3);
 		r_surfaces.write[i].normals.resize(r_face_count[i] * 3);
 		r_surfaces.write[i].uvs.resize(r_face_count[i] * 3);
+		if (p_brush->has_colors) {
+			r_surfaces.write[i].colors.resize(r_face_count[i] * 3);
+		}
+		for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+			if (p_brush->custom_channels & (1u << custom_i)) {
+				r_surfaces.write[i].customs[custom_i].resize(r_face_count[i] * 3);
+			}
+		}
 		if (calculate_tangents) {
 			r_surfaces.write[i].tans.resize(r_face_count[i] * 3 * 4);
 		}
@@ -839,6 +1007,14 @@ void CSGShape3D::_build_surfaces_default(CSGBrush *p_brush, Vector<CSGShape3D::S
 		r_surfaces.write[i].verticesw = r_surfaces.write[i].vertices.ptrw();
 		r_surfaces.write[i].normalsw = r_surfaces.write[i].normals.ptrw();
 		r_surfaces.write[i].uvsw = r_surfaces.write[i].uvs.ptrw();
+		if (p_brush->has_colors) {
+			r_surfaces.write[i].colorsw = r_surfaces.write[i].colors.ptrw();
+		}
+		for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+			if (p_brush->custom_channels & (1u << custom_i)) {
+				r_surfaces.write[i].customsw[custom_i] = r_surfaces.write[i].customs[custom_i].ptrw();
+			}
+		}
 		if (calculate_tangents) {
 			r_surfaces.write[i].tansw = r_surfaces.write[i].tans.ptrw();
 		}
@@ -881,6 +1057,14 @@ void CSGShape3D::_build_surfaces_default(CSGBrush *p_brush, Vector<CSGShape3D::S
 				r_surfaces[idx].verticesw[k] = v;
 				r_surfaces[idx].uvsw[k] = p_brush->faces[i].uvs[j];
 				r_surfaces[idx].normalsw[k] = normal;
+				if (p_brush->has_colors) {
+					r_surfaces[idx].colorsw[k] = p_brush->faces[i].colors[j];
+				}
+				for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+					if (p_brush->custom_channels & (1u << custom_i)) {
+						r_surfaces[idx].customsw[custom_i][k] = p_brush->faces[i].customs[custom_i][j];
+					}
+				}
 
 				if (calculate_tangents) {
 					// zero out our tangents for now
@@ -1171,6 +1355,35 @@ Ref<TriangleMesh> CSGShape3D::generate_triangle_mesh() const {
 	return Ref<TriangleMesh>();
 }
 
+
+void CSGShape3D::_modifier_changed() {
+	_make_dirty();
+}
+
+void CSGShape3D::set_modifiers(const TypedArray<CSGModifier> &p_modifiers) {
+	Callable changed_callable = callable_mp(this, &CSGShape3D::_modifier_changed);
+	for (int i = 0; i < modifiers.size(); i++) {
+		Ref<CSGModifier> modifier = modifiers[i];
+		if (modifier.is_valid() && modifier->is_connected(StringName("changed"), changed_callable)) {
+			modifier->disconnect(StringName("changed"), changed_callable);
+		}
+	}
+
+	modifiers = p_modifiers;
+
+	for (int i = 0; i < modifiers.size(); i++) {
+		Ref<CSGModifier> modifier = modifiers[i];
+		if (modifier.is_valid() && !modifier->is_connected(StringName("changed"), changed_callable)) {
+			modifier->connect(StringName("changed"), changed_callable);
+		}
+	}
+	_make_dirty();
+}
+
+TypedArray<CSGModifier> CSGShape3D::get_modifiers() const {
+	return modifiers;
+}
+
 void CSGShape3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_root_shape"), &CSGShape3D::is_root_shape);
 
@@ -1212,6 +1425,9 @@ void CSGShape3D::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("get_meshes"), &CSGShape3D::get_meshes);
 
+	ClassDB::bind_method(D_METHOD("set_modifiers", "modifiers"), &CSGShape3D::set_modifiers);
+	ClassDB::bind_method(D_METHOD("get_modifiers"), &CSGShape3D::get_modifiers);
+
 	ClassDB::bind_method(D_METHOD("bake_static_mesh"), &CSGShape3D::bake_static_mesh);
 
 	ClassDB::bind_method(D_METHOD("set_autosmooth", "autosmooth"), &CSGShape3D::set_autosmooth);
@@ -1228,6 +1444,7 @@ void CSGShape3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "snap", PROPERTY_HINT_RANGE, "0.000001,1,0.000001,suffix:m", PROPERTY_USAGE_NONE), "set_snap", "get_snap");
 #endif // DISABLE_DEPRECATED
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "calculate_tangents"), "set_calculate_tangents", "is_calculating_tangents");
+	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "modifiers", PROPERTY_HINT_ARRAY_TYPE, MAKE_RESOURCE_TYPE_HINT("CSGModifier")), "set_modifiers", "get_modifiers");
 
 #ifndef PHYSICS_3D_DISABLED
 	ADD_GROUP("Collision", "collision_");

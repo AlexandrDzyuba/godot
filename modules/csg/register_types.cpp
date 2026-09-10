@@ -31,6 +31,7 @@
 #include "register_types.h"
 
 #include "csg_shape.h"
+#include "csg_modifier.h"
 
 #include "core/object/class_db.h"
 
@@ -40,6 +41,8 @@
 
 void initialize_csg_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+		GDREGISTER_CLASS(CSGModifierContext);
+		GDREGISTER_CLASS(CSGModifier);
 		GDREGISTER_ABSTRACT_CLASS(CSGShape3D);
 		GDREGISTER_ABSTRACT_CLASS(CSGPrimitive3D);
 		GDREGISTER_CLASS(CSGMesh3D);

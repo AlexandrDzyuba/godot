@@ -31,6 +31,8 @@
 #pragma once
 
 #include "core/math/aabb.h"
+#include "core/math/color.h"
+#include "scene/resources/mesh.h"
 #include "core/math/transform_3d.h"
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
@@ -39,9 +41,13 @@
 #include "scene/resources/material.h"
 
 struct CSGBrush {
+	static constexpr int CUSTOM_CHANNEL_COUNT = 4;
+
 	struct Face {
 		Vector3 vertices[3];
 		Vector2 uvs[3];
+		Color colors[3] = { Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1) };
+		Vector4 customs[CSGBrush::CUSTOM_CHANNEL_COUNT][3];
 		AABB aabb;
 		bool smooth = false;
 		bool invert = false;
@@ -50,6 +56,15 @@ struct CSGBrush {
 
 	Vector<Face> faces;
 	Vector<Ref<Material>> materials;
+
+	bool has_colors = false;
+	uint32_t custom_channels = 0;
+	Mesh::ArrayCustomFormat custom_formats[CSGBrush::CUSTOM_CHANNEL_COUNT] = {
+		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
+		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
+		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
+		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
+	};
 
 	inline void _regen_face_aabbs() {
 		for (int i = 0; i < faces.size(); i++) {
