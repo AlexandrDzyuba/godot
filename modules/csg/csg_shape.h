@@ -31,6 +31,9 @@
 #pragma once
 
 #include "csg.h"
+#include "csg_bevel_settings.h"
+#include "csg_modifier.h"
+#include "csg_topology_settings.h"
 
 #include "scene/3d/path_3d.h"
 #include "scene/3d/visual_instance_3d.h"
@@ -84,12 +87,18 @@ private:
 
 	bool calculate_tangents = true;
 
+	TypedArray<CSGModifier> modifiers;
+	Ref<CSGBevelSettings> bevel_settings;
+	Ref<CSGTopologySettings> topology_settings;
+
 	Ref<ArrayMesh> root_mesh;
 
 	struct ShapeUpdateSurface {
 		Vector<Vector3> vertices;
 		Vector<Vector3> normals;
 		Vector<Vector2> uvs;
+		Vector<Color> colors;
+		Vector<Vector4> customs[CSGBrush::CUSTOM_CHANNEL_COUNT];
 		Vector<real_t> tans;
 		Ref<Material> material;
 		int last_added = 0;
@@ -97,6 +106,8 @@ private:
 		Vector3 *verticesw = nullptr;
 		Vector3 *normalsw = nullptr;
 		Vector2 *uvsw = nullptr;
+		Color *colorsw = nullptr;
+		Vector4 *customsw[CSGBrush::CUSTOM_CHANNEL_COUNT] = {};
 		real_t *tansw = nullptr;
 	};
 
@@ -120,6 +131,10 @@ private:
 
 	void _build_surfaces_smoothed(CSGBrush *p_brush, Vector<ShapeUpdateSurface> &r_surfaces, Vector<int> &r_face_count);
 	void _build_surfaces_default(CSGBrush *p_brush, Vector<ShapeUpdateSurface> &r_surfaces, Vector<int> &r_face_count);
+	void _process_modifiers(CSGBrush *p_brush);
+	void _modifier_changed();
+	void _bevel_settings_changed();
+	void _topology_settings_changed();
 
 protected:
 	void _notification(int p_what);
@@ -145,7 +160,6 @@ public:
 
 	virtual AABB get_aabb() const override;
 
-#ifndef PHYSICS_3D_DISABLED
 	void set_use_collision(bool p_enable);
 	bool is_using_collision() const;
 
@@ -165,7 +179,6 @@ public:
 
 	void set_collision_priority(real_t p_priority);
 	real_t get_collision_priority() const;
-#endif // PHYSICS_3D_DISABLED
 
 	void set_autosmooth(bool p_smooth);
 	bool is_autosmooth() const;
@@ -180,6 +193,14 @@ public:
 
 	void set_calculate_tangents(bool p_calculate_tangents);
 	bool is_calculating_tangents() const;
+
+	void set_modifiers(const TypedArray<CSGModifier> &p_modifiers);
+	TypedArray<CSGModifier> get_modifiers() const;
+	void set_bevel_settings(const Ref<CSGBevelSettings> &p_bevel_settings);
+	Ref<CSGBevelSettings> get_bevel_settings() const;
+
+	void set_topology_settings(const Ref<CSGTopologySettings> &p_topology_settings);
+	Ref<CSGTopologySettings> get_topology_settings() const;
 
 	bool is_root_shape() const;
 

@@ -30,13 +30,123 @@
 
 #pragma once
 
+#include "../csg_bevel_settings.h"
 #include "../csg_shape.h"
+#include "../csg_topology_settings.h"
 
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
 #include "tests/test_macros.h"
 
 namespace TestCSG {
+
+TEST_CASE("[SceneTree][CSG] CSG EDGE_VOLUME topology") {
+	CSGBox3D *box = memnew(CSGBox3D);
+	SceneTree::get_singleton()->get_root()->add_child(box);
+
+	const Vector<Vector3> original_faces = box->get_brush_faces();
+	CHECK(original_faces.size() == 36);
+
+	Ref<CSGTopologySettings> topology_settings;
+	topology_settings.instantiate();
+	box->set_topology_settings(topology_settings);
+	CHECK(box->get_brush_faces().size() == original_faces.size());
+
+	topology_settings->set_mode(CSGTopologySettings::TOPOLOGY_EDGE_VOLUME);
+	const Vector<Vector3> edge_volume_faces = box->get_brush_faces();
+	CHECK_FALSE(edge_volume_faces.is_empty());
+	CHECK(box->get_aabb().size.x > 1.0);
+	CHECK(box->get_aabb().size.y > 1.0);
+	CHECK(box->get_aabb().size.z > 1.0);
+
+	topology_settings->set_mode(CSGTopologySettings::TOPOLOGY_NONE);
+	CHECK(box->get_brush_faces().size() == original_faces.size());
+
+	SceneTree::get_singleton()->get_root()->remove_child(box);
+	memdelete(box);
+}
+
+TEST_CASE("[SceneTree][CSG] Native parent bevel processes child topology") {
+	CSGCombiner3D *combiner = memnew(CSGCombiner3D);
+	SceneTree::get_singleton()->get_root()->add_child(combiner);
+
+	CSGBox3D *box = memnew(CSGBox3D);
+	Ref<CSGTopologySettings> topology_settings;
+	topology_settings.instantiate();
+	topology_settings->set_mode(CSGTopologySettings::TOPOLOGY_EDGE_VOLUME);
+	box->set_topology_settings(topology_settings);
+	combiner->add_child(box);
+
+	const Vector<Vector3> topology_faces = combiner->get_brush_faces();
+	CHECK_FALSE(topology_faces.is_empty());
+
+	Ref<CSGBevelSettings> bevel_settings;
+	bevel_settings.instantiate();
+	bevel_settings->set_width(0.01);
+	combiner->set_bevel_settings(bevel_settings);
+
+	const Vector<Vector3> beveled_faces = combiner->get_brush_faces();
+	CHECK_FALSE(beveled_faces.is_empty());
+	CHECK(beveled_faces.size() != topology_faces.size());
+
+	SceneTree::get_singleton()->get_root()->remove_child(combiner);
+	memdelete(combiner);
+}
+
+TEST_CASE("[SceneTree][CSG] Native bevel processes the node Boolean result") {
+	CSGBox3D *shape = memnew(CSGBox3D);
+	shape->set_size(Vector3(3.6121826, 1, 1));
+	SceneTree::get_singleton()->get_root()->add_child(shape);
+
+	CSGBox3D *cutter = memnew(CSGBox3D);
+	cutter->set_size(Vector3(0.4831543, 1, 1.6128159));
+	cutter->set_operation(CSGShape3D::OPERATION_SUBTRACTION);
+	cutter->set_position(Vector3(0.51507425, 0.43687516, 0.04569912));
+	shape->add_child(cutter);
+
+	const int boolean_face_count = shape->get_brush_faces().size();
+	Ref<CSGBevelSettings> bevel_settings;
+	bevel_settings.instantiate();
+	bevel_settings->set_width(0.02);
+	bevel_settings->set_angle_threshold(0.0);
+	shape->set_bevel_settings(bevel_settings);
+	CHECK(shape->get_brush_faces().size() > boolean_face_count);
+
+	CSGBox3D *additional_union = memnew(CSGBox3D);
+	additional_union->set_size(Vector3(0.5, 0.5, 0.5));
+	additional_union->set_position(Vector3(-1.75, 0.0, 0.0));
+	shape->add_child(additional_union);
+	CHECK_FALSE(shape->get_brush_faces().is_empty());
+
+	bevel_settings->set_enabled(false);
+	CHECK(shape->get_brush_faces().size() >= boolean_face_count);
+
+	SceneTree::get_singleton()->get_root()->remove_child(shape);
+	memdelete(shape);
+}
+
+TEST_CASE("[SceneTree][CSG] Native bevel placement follows the CSG tree") {
+	CSGCombiner3D *combiner = memnew(CSGCombiner3D);
+	SceneTree::get_singleton()->get_root()->add_child(combiner);
+
+	CSGBox3D *box = memnew(CSGBox3D);
+	combiner->add_child(box);
+	Ref<CSGBevelSettings> child_bevel;
+	child_bevel.instantiate();
+	child_bevel->set_width(0.05);
+	box->set_bevel_settings(child_bevel);
+	CHECK(combiner->get_brush_faces().size() > 36);
+
+	box->set_bevel_settings(Ref<CSGBevelSettings>());
+	Ref<CSGBevelSettings> parent_bevel;
+	parent_bevel.instantiate();
+	parent_bevel->set_width(0.05);
+	combiner->set_bevel_settings(parent_bevel);
+	CHECK(combiner->get_brush_faces().size() > 36);
+
+	SceneTree::get_singleton()->get_root()->remove_child(combiner);
+	memdelete(combiner);
+}
 
 TEST_CASE("[SceneTree][CSG] CSGPolygon3D") {
 	SUBCASE("[SceneTree][CSG] CSGPolygon3D: using accurate path tangent for polygon rotation") {

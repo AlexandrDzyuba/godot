@@ -78,6 +78,9 @@
 			Enables automatic smoothing. This overrides any smoothing on the CSG node and instead uses [member smoothing_angle] to calculate normals based on the angle between faces.
 			Children of a [CSGCombiner3D] node will be treated as a single mesh.
 		</member>
+		<member name="bevel_settings" type="CSGBevelSettings" setter="set_bevel_settings" getter="get_bevel_settings">
+			Optional native bevel applied after this shape combines its local geometry with all child Boolean operations, and before topology processing. A child shape's bevel is therefore part of the operand received by its parent, while a bevel on a parent processes the parent's completed Boolean result.
+		</member>
 		<member name="calculate_tangents" type="bool" setter="set_calculate_tangents" getter="is_calculating_tangents" default="true">
 			Calculate tangents for the CSG shape which allows the use of normal and height maps. This is only applied on the root shape, this setting is ignored on any child. Setting this to [code]false[/code] can speed up shape generation slightly.
 		</member>
@@ -92,6 +95,9 @@
 		<member name="collision_priority" type="float" setter="set_collision_priority" getter="get_collision_priority" default="1.0">
 			The priority used to solve colliding when occurring penetration. Only effective if [member use_collision] is [code]true[/code]. The higher the priority is, the lower the penetration into the object will be. This can for example be used to prevent the player from breaking through the boundaries of a level.
 		</member>
+		<member name="modifiers" type="Array[CSGModifier]" setter="set_modifiers" getter="get_modifiers" default="[]">
+			Attribute and post-processing modifiers applied in array order after native bevel, topology processing, and Boolean operations have completed.
+		</member>
 		<member name="operation" type="int" setter="set_operation" getter="get_operation" enum="CSGShape3D.Operation" default="0">
 			The operation that is performed on this shape. This is ignored for the first CSG child node as the operation is between this node and the previous child of this nodes parent.
 		</member>
@@ -101,6 +107,9 @@
 		</member>
 		<member name="snap" type="float" setter="set_snap" getter="get_snap" deprecated="The CSG library no longer uses snapping.">
 			This property does nothing.
+		</member>
+		<member name="topology_settings" type="CSGTopologySettings" setter="set_topology_settings" getter="get_topology_settings">
+			Optional topology processing applied after this shape's child Boolean operations and before its result modifier stack. If unset or configured with [constant CSGTopologySettings.TOPOLOGY_NONE], the normal CSG build path is unchanged.
 		</member>
 		<member name="use_collision" type="bool" setter="set_use_collision" getter="is_using_collision" default="false">
 			Adds a collision shape to the physics engine for our CSG shape. This will always act like a static body. Note that the collision shape is still active even if the CSG shape itself is hidden. See also [member collision_mask] and [member collision_priority].

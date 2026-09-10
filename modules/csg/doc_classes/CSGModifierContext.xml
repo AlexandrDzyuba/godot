@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CSGModifierContext" inherits="RefCounted" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Provides access to generated CSG vertex data while a modifier is running.
+	</brief_description>
+	<description>
+		Passed to [method CSGModifier._process] while a CSG shape is rebuilding. Vertex arrays use triangle order and contain [method get_vertex_count] elements. The context is only valid for the duration of the modifier call and should not be retained.
+	</description>
+	<methods>
+		<method name="clear_colors">
+			<return type="void" />
+			<description>Removes the vertex color channel.</description>
+		</method>
+		<method name="clear_custom">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<description>Removes the custom vertex data at [param channel]. Valid channels are [code]0[/code] through [code]3[/code].</description>
+		</method>
+		<method name="get_colors" qualifiers="const">
+			<return type="PackedColorArray" />
+			<description>Returns vertex colors in triangle order, or an empty array if no color channel exists.</description>
+		</method>
+		<method name="get_custom" qualifiers="const">
+			<return type="PackedVector4Array" />
+			<param index="0" name="channel" type="int" />
+			<description>Returns custom vertex values at [param channel] in triangle order, or an empty array if the channel does not exist.</description>
+		</method>
+		<method name="get_custom_format" qualifiers="const">
+			<return type="int" enum="Mesh.ArrayCustomFormat" />
+			<param index="0" name="channel" type="int" />
+			<description>Returns the storage format used by custom [param channel].</description>
+		</method>
+		<method name="get_vertex_count" qualifiers="const">
+			<return type="int" />
+			<description>Returns the number of triangle vertices available to this modifier.</description>
+		</method>
+		<method name="get_vertices" qualifiers="const">
+			<return type="PackedVector3Array" />
+			<description>Returns generated vertex positions in triangle order.</description>
+		</method>
+		<method name="has_colors" qualifiers="const">
+			<return type="bool" />
+			<description>Returns [code]true[/code] if the brush has vertex colors.</description>
+		</method>
+		<method name="has_custom" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="channel" type="int" />
+			<description>Returns [code]true[/code] if custom [param channel] exists.</description>
+		</method>
+		<method name="set_colors">
+			<return type="void" />
+			<param index="0" name="colors" type="PackedColorArray" />
+			<description>Sets vertex colors. [param colors] must contain exactly [method get_vertex_count] values.</description>
+		</method>
+		<method name="set_custom">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="values" type="PackedVector4Array" />
+			<description>Sets custom vertex data. [param values] must contain exactly [method get_vertex_count] values.</description>
+		</method>
+		<method name="set_custom_format">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="format" type="int" enum="Mesh.ArrayCustomFormat" />
+			<description>Sets the storage [param format] used by custom [param channel].</description>
+		</method>
+	</methods>
+</class>

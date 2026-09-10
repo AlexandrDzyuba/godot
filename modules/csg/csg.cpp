@@ -106,6 +106,11 @@ void CSGBrush::build_from_faces(const Vector<Vector3> &p_vertices, const Vector<
 void CSGBrush::copy_from(const CSGBrush &p_brush, const Transform3D &p_xform) {
 	faces = p_brush.faces;
 	materials = p_brush.materials;
+	has_colors = p_brush.has_colors;
+	custom_channels = p_brush.custom_channels;
+	for (int i = 0; i < CSGBrush::CUSTOM_CHANNEL_COUNT; i++) {
+		custom_formats[i] = p_brush.custom_formats[i];
+	}
 
 	for (int i = 0; i < faces.size(); i++) {
 		for (int j = 0; j < 3; j++) {

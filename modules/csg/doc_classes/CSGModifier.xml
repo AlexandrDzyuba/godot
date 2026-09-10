@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CSGModifier" inherits="Resource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Base resource for modifying the generated geometry of a CSG shape.
+	</brief_description>
+	<description>
+		A CSG modifier is applied before the render mesh, collision, and navigation geometry are generated. Script-defined attribute modifiers can inspect vertex positions and change generated per-vertex attributes. Modifiers are applied in array order.
+		Override [method _process] to implement an attribute modifier in a script. Native geometry processing such as [member CSGShape3D.bevel_settings] is performed before the modifier stack.
+	</description>
+	<methods>
+		<method name="_process" qualifiers="virtual">
+			<return type="void" />
+			<param index="0" name="context" type="CSGModifierContext" />
+			<description>
+				Called when the owning CSG shape rebuilds its geometry. Use [param context] to inspect vertex positions and read or write per-vertex attributes.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="enabled" type="bool" setter="set_enabled" getter="is_enabled" default="true">
+			If [code]true[/code], this modifier is applied when the owning CSG shape rebuilds.
+		</member>
+	</members>
+</class>

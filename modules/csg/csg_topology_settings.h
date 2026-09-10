@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  csg.h                                                                 */
+/*  csg_topology_settings.h                                               */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -30,52 +30,39 @@
 
 #pragma once
 
-#include "core/math/aabb.h"
-#include "core/math/color.h"
-#include "scene/resources/mesh.h"
-#include "core/math/transform_3d.h"
-#include "core/math/vector2.h"
-#include "core/math/vector3.h"
-#include "core/object/ref_counted.h"
-#include "core/templates/vector.h"
-#include "scene/resources/material.h"
+#include "core/io/resource.h"
+#include "core/math/math_funcs.h"
 
-struct CSGBrush {
-	static constexpr int CUSTOM_CHANNEL_COUNT = 4;
+class CSGTopologySettings : public Resource {
+	GDCLASS(CSGTopologySettings, Resource);
 
-	struct Face {
-		Vector3 vertices[3];
-		Vector2 uvs[3];
-		Color colors[3] = { Color(1, 1, 1, 1), Color(1, 1, 1, 1), Color(1, 1, 1, 1) };
-		Vector4 customs[CSGBrush::CUSTOM_CHANNEL_COUNT][3];
-		AABB aabb;
-		bool smooth = false;
-		bool invert = false;
-		int material = 0;
+public:
+	enum TopologyMode {
+		TOPOLOGY_NONE,
+		TOPOLOGY_EDGE_VOLUME,
 	};
 
-	Vector<Face> faces;
-	Vector<Ref<Material>> materials;
+private:
+	TopologyMode mode = TOPOLOGY_NONE;
+	real_t edge_width = 0.05;
+	real_t angle_threshold = Math::deg_to_rad(30.0);
+	real_t merge_epsilon = 0.00001;
 
-	bool has_colors = false;
-	uint32_t custom_channels = 0;
-	Mesh::ArrayCustomFormat custom_formats[CSGBrush::CUSTOM_CHANNEL_COUNT] = {
-		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
-		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
-		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
-		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
-	};
+protected:
+	static void _bind_methods();
 
-	inline void _regen_face_aabbs() {
-		for (int i = 0; i < faces.size(); i++) {
-			faces.write[i].aabb = AABB();
-			faces.write[i].aabb.position = faces[i].vertices[0];
-			faces.write[i].aabb.expand_to(faces[i].vertices[1]);
-			faces.write[i].aabb.expand_to(faces[i].vertices[2]);
-		}
-	}
+public:
+	void set_mode(TopologyMode p_mode);
+	TopologyMode get_mode() const;
 
-	// Create a brush from faces.
-	void build_from_faces(const Vector<Vector3> &p_vertices, const Vector<Vector2> &p_uvs, const Vector<bool> &p_smooth, const Vector<Ref<Material>> &p_materials, const Vector<bool> &p_invert_faces);
-	void copy_from(const CSGBrush &p_brush, const Transform3D &p_xform);
+	void set_edge_width(real_t p_edge_width);
+	real_t get_edge_width() const;
+
+	void set_angle_threshold(real_t p_angle_threshold);
+	real_t get_angle_threshold() const;
+
+	void set_merge_epsilon(real_t p_merge_epsilon);
+	real_t get_merge_epsilon() const;
 };
+
+VARIANT_ENUM_CAST(CSGTopologySettings::TopologyMode);

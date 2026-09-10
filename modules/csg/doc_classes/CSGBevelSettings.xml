@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CSGBevelSettings" inherits="Resource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Configures native geometric beveling for a [CSGShape3D].
+	</brief_description>
+	<description>
+		Configures bevel geometry generated directly from a node's completed Boolean result. The bevel is applied before topology processing and before the result is passed to the node's parent, so assigning this resource to a child or to its parent has different CSG semantics.
+	</description>
+	<tutorials>
+	</tutorials>
+	<members>
+		<member name="angle_threshold" type="float" setter="set_angle_threshold" getter="get_angle_threshold" default="0.523599">
+			The minimum angle between neighboring geometric faces for their shared edge to be beveled. Coplanar triangulation edges are ignored.
+		</member>
+		<member name="debug_print" type="bool" setter="set_debug_print" getter="is_debug_printing" default="false">
+			Prints detailed native bevel diagnostics to the output. This includes edge classification, cap construction, width clamping, generated triangle counts, and the final Manifold status.
+		</member>
+		<member name="enabled" type="bool" setter="set_enabled" getter="is_enabled" default="true">
+			If [code]true[/code], applies the bevel to the owning [CSGShape3D].
+		</member>
+		<member name="width" type="float" setter="set_width" getter="get_width" default="0.1">
+			The bevel width in meters. The effective width is limited near short geometric features to keep the output manifold valid.
+		</member>
+	</members>
+</class>

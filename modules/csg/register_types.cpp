@@ -30,7 +30,10 @@
 
 #include "register_types.h"
 
+#include "csg_bevel_settings.h"
+#include "csg_modifier.h"
 #include "csg_shape.h"
+#include "csg_topology_settings.h"
 
 #include "core/object/class_db.h"
 
@@ -40,6 +43,10 @@
 
 void initialize_csg_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+		GDREGISTER_CLASS(CSGModifierContext);
+		GDREGISTER_CLASS(CSGModifier);
+		GDREGISTER_CLASS(CSGBevelSettings);
+		GDREGISTER_CLASS(CSGTopologySettings);
 		GDREGISTER_ABSTRACT_CLASS(CSGShape3D);
 		GDREGISTER_ABSTRACT_CLASS(CSGPrimitive3D);
 		GDREGISTER_CLASS(CSGMesh3D);
