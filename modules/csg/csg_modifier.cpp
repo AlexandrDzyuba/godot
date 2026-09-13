@@ -26,6 +26,10 @@ void CSGModifierContext::setup(CSGBrush *p_brush) {
 	brush = p_brush;
 }
 
+CSGBrush *CSGModifierContext::get_brush() const {
+	return brush;
+}
+
 int CSGModifierContext::get_vertex_count() const {
 	return brush ? brush->faces.size() * 3 : 0;
 }

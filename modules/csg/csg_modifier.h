@@ -6,15 +6,20 @@
 
 #include "csg.h"
 
+#include "core/io/resource.h"
 #include "core/object/gdvirtual.gen.h"
 #include "core/object/ref_counted.h"
 #include "core/variant/typed_array.h"
-#include "core/io/resource.h"
+
+class CSGBevelModifier;
 
 class CSGModifierContext : public RefCounted {
 	GDCLASS(CSGModifierContext, RefCounted);
+	friend class CSGBevelModifier;
 
 	CSGBrush *brush = nullptr;
+
+	CSGBrush *get_brush() const;
 
 protected:
 	static void _bind_methods();
@@ -52,5 +57,5 @@ public:
 	void set_enabled(bool p_enabled);
 	bool is_enabled() const;
 
-	void process(const Ref<CSGModifierContext> &p_context);
+	virtual void process(const Ref<CSGModifierContext> &p_context);
 };

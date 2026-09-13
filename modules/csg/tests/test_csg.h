@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "../csg_bevel_modifier.h"
 #include "../csg_shape.h"
 
 #include "scene/main/scene_tree.h"
@@ -37,6 +38,31 @@
 #include "tests/test_macros.h"
 
 namespace TestCSG {
+
+TEST_CASE("[SceneTree][CSG] CSGBevelModifier") {
+	CSGBox3D *box = memnew(CSGBox3D);
+	SceneTree::get_singleton()->get_root()->add_child(box);
+
+	const Vector<Vector3> original_faces = box->get_brush_faces();
+	CHECK(original_faces.size() == 36);
+
+	Ref<CSGBevelModifier> bevel;
+	bevel.instantiate();
+	bevel->set_width(0.1);
+	TypedArray<CSGModifier> modifiers;
+	modifiers.push_back(bevel);
+	box->set_modifiers(modifiers);
+
+	const Vector<Vector3> beveled_faces = box->get_brush_faces();
+	CHECK(beveled_faces.size() > original_faces.size());
+	CHECK(box->get_aabb().is_equal_approx(AABB(Vector3(-0.5, -0.5, -0.5), Vector3(1, 1, 1))));
+
+	bevel->set_enabled(false);
+	CHECK(box->get_brush_faces().size() == original_faces.size());
+
+	SceneTree::get_singleton()->get_root()->remove_child(box);
+	memdelete(box);
+}
 
 TEST_CASE("[SceneTree][CSG] CSGPolygon3D") {
 	SUBCASE("[SceneTree][CSG] CSGPolygon3D: using accurate path tangent for polygon rotation") {

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CSGBevelModifier" inherits="CSGModifier" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Creates a flat bevel on sharp edges of generated CSG geometry.
+	</brief_description>
+	<description>
+		Rebuilds generated CSG geometry by insetting adjacent faces, adding a chamfer along qualifying edges, and closing the resulting corners. Coplanar triangulation edges are ignored. The modifier runs after the shape's Boolean operations, so it bevels the visible Boolean result.
+		The modifier creates a single flat bevel segment.
+	</description>
+	<members>
+		<member name="angle" type="float" setter="set_angle" getter="get_angle" default="0.523599">
+			Minimum angle in radians between neighboring faces for their shared edge to be beveled.
+		</member>
+		<member name="width" type="float" setter="set_width" getter="get_width" default="0.1">
+			Distance in local units by which adjacent faces are inset from a beveled edge.
+		</member>
+	</members>
+</class>
