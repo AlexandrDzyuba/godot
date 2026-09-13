@@ -47,6 +47,13 @@ public:
 class CSGModifier : public Resource {
 	GDCLASS(CSGModifier, Resource);
 
+public:
+	enum ProcessStage {
+		PROCESS_STAGE_OPERANDS = 1,
+		PROCESS_STAGE_RESULT = 2,
+	};
+
+private:
 	bool enabled = true;
 
 protected:
@@ -57,6 +64,6 @@ public:
 	void set_enabled(bool p_enabled);
 	bool is_enabled() const;
 
-	virtual bool modifies_geometry() const;
+	virtual uint32_t get_process_stages() const;
 	virtual void process(const Ref<CSGModifierContext> &p_context);
 };

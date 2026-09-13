@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  csg_topology_settings.h                                               */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,47 +28,41 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
 
-#include "csg_bevel_modifier.h"
-#include "csg_modifier.h"
-#include "csg_shape.h"
-#include "csg_topology_settings.h"
+#include "core/io/resource.h"
+#include "core/math/math_funcs.h"
 
-#include "core/object/class_db.h"
+class CSGTopologySettings : public Resource {
+	GDCLASS(CSGTopologySettings, Resource);
 
-#ifdef TOOLS_ENABLED
-#include "editor/csg_gizmos.h"
-#endif
+public:
+	enum TopologyMode {
+		TOPOLOGY_NONE,
+		TOPOLOGY_EDGE_VOLUME,
+	};
 
-void initialize_csg_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		GDREGISTER_CLASS(CSGModifierContext);
-		GDREGISTER_CLASS(CSGModifier);
-		GDREGISTER_CLASS(CSGBevelModifier);
-		GDREGISTER_CLASS(CSGTopologySettings);
-		GDREGISTER_ABSTRACT_CLASS(CSGShape3D);
-		GDREGISTER_ABSTRACT_CLASS(CSGPrimitive3D);
-		GDREGISTER_CLASS(CSGMesh3D);
-		GDREGISTER_CLASS(CSGSphere3D);
-		GDREGISTER_CLASS(CSGBox3D);
-		GDREGISTER_CLASS(CSGCylinder3D);
-		GDREGISTER_CLASS(CSGTorus3D);
-		GDREGISTER_CLASS(CSGPolygon3D);
-		GDREGISTER_CLASS(CSGCombiner3D);
-#ifndef NAVIGATION_3D_DISABLED
-		CSGShape3D::navmesh_parse_init();
-#endif // NAVIGATION_3D_DISABLED
-	}
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		EditorPlugins::add_by_type<EditorPluginCSG>();
-	}
-#endif
-}
+private:
+	TopologyMode mode = TOPOLOGY_NONE;
+	real_t edge_width = 0.05;
+	real_t angle_threshold = Math::deg_to_rad(30.0);
+	real_t merge_epsilon = 0.00001;
 
-void uninitialize_csg_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
-		return;
-	}
-}
+protected:
+	static void _bind_methods();
+
+public:
+	void set_mode(TopologyMode p_mode);
+	TopologyMode get_mode() const;
+
+	void set_edge_width(real_t p_edge_width);
+	real_t get_edge_width() const;
+
+	void set_angle_threshold(real_t p_angle_threshold);
+	real_t get_angle_threshold() const;
+
+	void set_merge_epsilon(real_t p_merge_epsilon);
+	real_t get_merge_epsilon() const;
+};
+
+VARIANT_ENUM_CAST(CSGTopologySettings::TopologyMode);

@@ -4,10 +4,13 @@
 		Creates a flat bevel on sharp edges of generated CSG geometry.
 	</brief_description>
 	<description>
-		Rebuilds generated CSG geometry by insetting adjacent faces, adding a chamfer along qualifying edges, and closing the resulting corners. Coplanar triangulation edges are ignored. As a geometry modifier, it is applied to the owning shape and temporary copies of its child operands before their Boolean operation.
+		Rebuilds generated CSG geometry by insetting adjacent faces, adding a chamfer along qualifying edges, and closing the resulting corners. Coplanar triangulation edges are ignored. Use [member application_mode] to bevel individual operands, newly created edges in the Boolean result, or both.
 		The modifier creates a single flat bevel segment.
 	</description>
 	<members>
+		<member name="application_mode" type="int" setter="set_application_mode" getter="get_application_mode" enum="CSGBevelModifier.ApplicationMode" default="1">
+			Controls whether the bevel is applied before or after Boolean operations. Use [constant APPLICATION_MODE_RESULT] to bevel edges created by subtraction and intersection operations.
+		</member>
 		<member name="angle" type="float" setter="set_angle" getter="get_angle" default="0.523599">
 			Minimum angle in radians between neighboring faces for their shared edge to be beveled.
 		</member>
@@ -15,4 +18,15 @@
 			Distance in local units by which adjacent faces are inset from a beveled edge.
 		</member>
 	</members>
+	<constants>
+		<constant name="APPLICATION_MODE_OPERANDS" value="0" enum="ApplicationMode">
+			Applies the bevel independently to the owning shape and its child operands before the Boolean operation.
+		</constant>
+		<constant name="APPLICATION_MODE_RESULT" value="1" enum="ApplicationMode">
+			Applies the bevel to the final Boolean result. This includes edges created by subtraction and intersection operations.
+		</constant>
+		<constant name="APPLICATION_MODE_BOTH" value="2" enum="ApplicationMode">
+			Applies the bevel to operands and then applies it again to the Boolean result. This can bevel already generated chamfer edges a second time.
+		</constant>
+	</constants>
 </class>

@@ -524,7 +524,204 @@ struct ManifoldOperation {
 			manifold(m), operation(op) {}
 };
 
-void CSGShape3D::_process_modifiers(CSGBrush *p_brush, bool p_geometry_modifiers) {
+namespace {
+
+struct CSGTopologyFace {
+	int vertices[3];
+	Vector3 normal;
+};
+
+struct CSGTopologyEdge {
+	int vertices[2];
+	Vector<int> faces;
+};
+
+static uint64_t _topology_edge_key(int p_a, int p_b) {
+	const uint32_t a = MIN(p_a, p_b);
+	const uint32_t b = MAX(p_a, p_b);
+	return (uint64_t(a) << 32) | b;
+}
+
+static Vector3i _topology_cell(const Vector3 &p_position, real_t p_epsilon) {
+	return Vector3i(
+			Math::floor(p_position.x / p_epsilon),
+			Math::floor(p_position.y / p_epsilon),
+			Math::floor(p_position.z / p_epsilon));
+}
+
+static int _topology_weld_vertex(const Vector3 &p_position, real_t p_epsilon, HashMap<Vector3i, Vector<int>> &r_cells, Vector<Vector3> &r_vertices) {
+	const Vector3i cell = _topology_cell(p_position, p_epsilon);
+	const real_t epsilon_squared = p_epsilon * p_epsilon;
+	for (int x = -1; x <= 1; x++) {
+		for (int y = -1; y <= 1; y++) {
+			for (int z = -1; z <= 1; z++) {
+				HashMap<Vector3i, Vector<int>>::ConstIterator candidates = r_cells.find(cell + Vector3i(x, y, z));
+				if (!candidates) {
+					continue;
+				}
+				for (int vertex : candidates->value) {
+					if (r_vertices[vertex].distance_squared_to(p_position) <= epsilon_squared) {
+						return vertex;
+					}
+				}
+			}
+		}
+	}
+
+	const int vertex = r_vertices.size();
+	r_vertices.push_back(p_position);
+	r_cells[cell].push_back(vertex);
+	return vertex;
+}
+
+} // namespace
+
+void CSGShape3D::_process_topology(CSGBrush *p_brush) {
+	ERR_FAIL_NULL(p_brush);
+	ERR_FAIL_COND(topology_settings.is_null());
+
+	switch (topology_settings->get_mode()) {
+		case CSGTopologySettings::TOPOLOGY_NONE:
+			return;
+		case CSGTopologySettings::TOPOLOGY_EDGE_VOLUME:
+			_process_edge_volume_topology(p_brush);
+			return;
+	}
+}
+
+void CSGShape3D::_process_edge_volume_topology(CSGBrush *p_brush) {
+	if (p_brush->faces.is_empty()) {
+		return;
+	}
+
+	const real_t merge_epsilon = topology_settings->get_merge_epsilon();
+	const real_t edge_width = topology_settings->get_edge_width();
+	const real_t normal_dot_limit = Math::cos(topology_settings->get_angle_threshold());
+	HashMap<Vector3i, Vector<int>> vertex_cells;
+	Vector<Vector3> vertices;
+	Vector<CSGTopologyFace> faces;
+	HashMap<uint64_t, CSGTopologyEdge> edges;
+	faces.resize(p_brush->faces.size());
+
+	for (int face_i = 0; face_i < p_brush->faces.size(); face_i++) {
+		const CSGBrush::Face &brush_face = p_brush->faces[face_i];
+		CSGTopologyFace &face = faces.write[face_i];
+		face.normal = (brush_face.vertices[1] - brush_face.vertices[0]).cross(brush_face.vertices[2] - brush_face.vertices[0]).normalized();
+		if (face.normal.is_zero_approx()) {
+			continue;
+		}
+
+		for (int corner = 0; corner < 3; corner++) {
+			face.vertices[corner] = _topology_weld_vertex(brush_face.vertices[corner], merge_epsilon, vertex_cells, vertices);
+		}
+		for (int corner = 0; corner < 3; corner++) {
+			const int a = face.vertices[corner];
+			const int b = face.vertices[(corner + 1) % 3];
+			if (a == b) {
+				continue;
+			}
+			const uint64_t key = _topology_edge_key(a, b);
+			HashMap<uint64_t, CSGTopologyEdge>::Iterator edge = edges.find(key);
+			if (edge) {
+				edge->value.faces.push_back(face_i);
+			} else {
+				CSGTopologyEdge new_edge;
+				new_edge.vertices[0] = MIN(a, b);
+				new_edge.vertices[1] = MAX(a, b);
+				new_edge.faces.push_back(face_i);
+				edges.insert(key, new_edge);
+			}
+		}
+	}
+
+	std::vector<manifold::Manifold> edge_volumes;
+	HashMap<int32_t, Ref<Material>> topology_materials;
+	for (const KeyValue<uint64_t, CSGTopologyEdge> &entry : edges) {
+		const CSGTopologyEdge &edge = entry.value;
+		if (edge.faces.size() != 2) {
+			continue;
+		}
+
+		const CSGTopologyFace &face_a = faces[edge.faces[0]];
+		const CSGTopologyFace &face_b = faces[edge.faces[1]];
+		const real_t normal_dot = CLAMP(face_a.normal.dot(face_b.normal), -1.0, 1.0);
+		if (normal_dot >= 1.0 - CMP_EPSILON || normal_dot > normal_dot_limit) {
+			continue;
+		}
+
+		const Vector3 start = vertices[edge.vertices[0]];
+		const Vector3 end = vertices[edge.vertices[1]];
+		const real_t edge_length = start.distance_to(end);
+		if (edge_length <= merge_epsilon) {
+			continue;
+		}
+
+		const Vector3 tangent = (end - start) / edge_length;
+		Vector3 axis_y = face_a.normal - tangent * face_a.normal.dot(tangent);
+		if (axis_y.is_zero_approx()) {
+			axis_y = tangent.cross(Vector3(0, 1, 0));
+			if (axis_y.is_zero_approx()) {
+				axis_y = tangent.cross(Vector3(1, 0, 0));
+			}
+		}
+		axis_y.normalize();
+		const Vector3 axis_z = tangent.cross(axis_y).normalized();
+		const Vector3 midpoint = (start + end) * 0.5;
+		const manifold::mat3 rotation({
+				{ tangent.x, tangent.y, tangent.z },
+				{ axis_y.x, axis_y.y, axis_y.z },
+				{ axis_z.x, axis_z.y, axis_z.z },
+		});
+		const manifold::mat3x4 transform(rotation, manifold::vec3(midpoint.x, midpoint.y, midpoint.z));
+
+		const CSGBrush::Face &source_face = p_brush->faces[edge.faces[0]];
+		const bool source_invert = source_face.invert;
+		const bool source_smooth = source_face.smooth;
+		manifold::Manifold volume = manifold::Manifold::Cube(manifold::vec3(edge_length + edge_width, edge_width, edge_width), true).Transform(transform);
+		volume = volume.SetProperties(MANIFOLD_PROPERTY_MAX - 3, [source_invert, source_smooth](double *p_properties, manifold::vec3, const double *) {
+			for (int i = 0; i < MANIFOLD_PROPERTY_MAX - 3; i++) {
+				p_properties[i] = 0.0;
+			}
+			p_properties[MANIFOLD_PROPERTY_INVERT - 3] = source_invert ? 1.0 : 0.0;
+			p_properties[MANIFOLD_PROPERTY_SMOOTH_GROUP - 3] = source_smooth ? 1.0 : 0.0;
+			p_properties[MANIFOLD_PROPERTY_COLOR_R - 3] = 1.0;
+			p_properties[MANIFOLD_PROPERTY_COLOR_G - 3] = 1.0;
+			p_properties[MANIFOLD_PROPERTY_COLOR_B - 3] = 1.0;
+			p_properties[MANIFOLD_PROPERTY_COLOR_A - 3] = 1.0;
+		});
+		volume = volume.AsOriginal();
+
+		Ref<Material> material;
+		if (source_face.material >= 0 && source_face.material < p_brush->materials.size()) {
+			material = p_brush->materials[source_face.material];
+		}
+		topology_materials.insert(volume.OriginalID(), material);
+		edge_volumes.push_back(std::move(volume));
+	}
+
+	if (edge_volumes.empty()) {
+		p_brush->faces.clear();
+		p_brush->materials.clear();
+		return;
+	}
+
+	manifold::Manifold topology_result = manifold::Manifold::BatchBoolean(edge_volumes, manifold::OpType::Add);
+	if (topology_result.Status() != manifold::Manifold::Error::NoError || topology_result.IsEmpty()) {
+		WARN_PRINT("CSG EDGE_VOLUME topology processing failed; the original brush was preserved.");
+		return;
+	}
+
+	CSGBrush result;
+	result.has_colors = p_brush->has_colors;
+	result.custom_channels = p_brush->custom_channels;
+	for (int i = 0; i < CSGBrush::CUSTOM_CHANNEL_COUNT; i++) {
+		result.custom_formats[i] = p_brush->custom_formats[i];
+	}
+	_unpack_manifold(topology_result, topology_materials, &result);
+	*p_brush = std::move(result);
+}
+
+void CSGShape3D::_process_modifiers(CSGBrush *p_brush, CSGModifier::ProcessStage p_stage) {
 	if (!p_brush || modifiers.is_empty()) {
 		return;
 	}
@@ -534,7 +731,7 @@ void CSGShape3D::_process_modifiers(CSGBrush *p_brush, bool p_geometry_modifiers
 	context->setup(p_brush);
 	for (int i = 0; i < modifiers.size(); i++) {
 		Ref<CSGModifier> modifier = modifiers[i];
-		if (modifier.is_valid() && modifier->modifies_geometry() == p_geometry_modifiers) {
+		if (modifier.is_valid() && (modifier->get_process_stages() & p_stage)) {
 			modifier->process(context);
 		}
 	}
@@ -550,7 +747,7 @@ CSGBrush *CSGShape3D::_get_brush() {
 	}
 	brush = nullptr;
 	CSGBrush *n = _build_brush();
-	_process_modifiers(n, true);
+	_process_modifiers(n, CSGModifier::PROCESS_STAGE_OPERANDS);
 	bool has_colors = n && n->has_colors;
 	uint32_t custom_channels = n ? n->custom_channels : 0;
 	Mesh::ArrayCustomFormat custom_formats[CSGBrush::CUSTOM_CHANNEL_COUNT] = {
@@ -592,7 +789,7 @@ CSGBrush *CSGShape3D::_get_brush() {
 
 		CSGBrush transformed_brush;
 		transformed_brush.copy_from(*child_brush, child->get_transform());
-		_process_modifiers(&transformed_brush, true);
+		_process_modifiers(&transformed_brush, CSGModifier::PROCESS_STAGE_OPERANDS);
 		manifold::Manifold child_manifold;
 		_pack_manifold(&transformed_brush, child_manifold, mesh_materials, child);
 		manifold::OpType child_operation = ManifoldOperation::convert_csg_op(child->get_operation());
@@ -618,7 +815,10 @@ CSGBrush *CSGShape3D::_get_brush() {
 		_unpack_manifold(manifold_result, mesh_materials, n);
 	}
 
-	_process_modifiers(n, false);
+	if (n && topology_settings.is_valid() && topology_settings->get_mode() != CSGTopologySettings::TOPOLOGY_NONE) {
+		_process_topology(n);
+	}
+	_process_modifiers(n, CSGModifier::PROCESS_STAGE_RESULT);
 
 	AABB aabb;
 	if (n && !n->faces.is_empty()) {
@@ -1390,6 +1590,31 @@ TypedArray<CSGModifier> CSGShape3D::get_modifiers() const {
 	return modifiers;
 }
 
+void CSGShape3D::_topology_settings_changed() {
+	_make_dirty();
+}
+
+void CSGShape3D::set_topology_settings(const Ref<CSGTopologySettings> &p_topology_settings) {
+	if (topology_settings == p_topology_settings) {
+		return;
+	}
+
+	Callable changed_callable = callable_mp(this, &CSGShape3D::_topology_settings_changed);
+	if (topology_settings.is_valid() && topology_settings->is_connected(StringName("changed"), changed_callable)) {
+		topology_settings->disconnect(StringName("changed"), changed_callable);
+	}
+
+	topology_settings = p_topology_settings;
+	if (topology_settings.is_valid()) {
+		topology_settings->connect(StringName("changed"), changed_callable);
+	}
+	_make_dirty();
+}
+
+Ref<CSGTopologySettings> CSGShape3D::get_topology_settings() const {
+	return topology_settings;
+}
+
 void CSGShape3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_root_shape"), &CSGShape3D::is_root_shape);
 
@@ -1433,6 +1658,8 @@ void CSGShape3D::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_modifiers", "modifiers"), &CSGShape3D::set_modifiers);
 	ClassDB::bind_method(D_METHOD("get_modifiers"), &CSGShape3D::get_modifiers);
+	ClassDB::bind_method(D_METHOD("set_topology_settings", "topology_settings"), &CSGShape3D::set_topology_settings);
+	ClassDB::bind_method(D_METHOD("get_topology_settings"), &CSGShape3D::get_topology_settings);
 
 	ClassDB::bind_method(D_METHOD("bake_static_mesh"), &CSGShape3D::bake_static_mesh);
 
@@ -1450,6 +1677,7 @@ void CSGShape3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "snap", PROPERTY_HINT_RANGE, "0.000001,1,0.000001,suffix:m", PROPERTY_USAGE_NONE), "set_snap", "get_snap");
 #endif // DISABLE_DEPRECATED
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "calculate_tangents"), "set_calculate_tangents", "is_calculating_tangents");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "topology_settings", PROPERTY_HINT_RESOURCE_TYPE, "CSGTopologySettings"), "set_topology_settings", "get_topology_settings");
 	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "modifiers", PROPERTY_HINT_ARRAY_TYPE, MAKE_RESOURCE_TYPE_HINT("CSGModifier")), "set_modifiers", "get_modifiers");
 
 #ifndef PHYSICS_3D_DISABLED

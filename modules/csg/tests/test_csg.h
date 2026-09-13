@@ -32,12 +32,39 @@
 
 #include "../csg_bevel_modifier.h"
 #include "../csg_shape.h"
+#include "../csg_topology_settings.h"
 
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
 #include "tests/test_macros.h"
 
 namespace TestCSG {
+
+TEST_CASE("[SceneTree][CSG] CSG EDGE_VOLUME topology") {
+	CSGBox3D *box = memnew(CSGBox3D);
+	SceneTree::get_singleton()->get_root()->add_child(box);
+
+	const Vector<Vector3> original_faces = box->get_brush_faces();
+	CHECK(original_faces.size() == 36);
+
+	Ref<CSGTopologySettings> topology_settings;
+	topology_settings.instantiate();
+	box->set_topology_settings(topology_settings);
+	CHECK(box->get_brush_faces().size() == original_faces.size());
+
+	topology_settings->set_mode(CSGTopologySettings::TOPOLOGY_EDGE_VOLUME);
+	const Vector<Vector3> edge_volume_faces = box->get_brush_faces();
+	CHECK_FALSE(edge_volume_faces.is_empty());
+	CHECK(box->get_aabb().size.x > 1.0);
+	CHECK(box->get_aabb().size.y > 1.0);
+	CHECK(box->get_aabb().size.z > 1.0);
+
+	topology_settings->set_mode(CSGTopologySettings::TOPOLOGY_NONE);
+	CHECK(box->get_brush_faces().size() == original_faces.size());
+
+	SceneTree::get_singleton()->get_root()->remove_child(box);
+	memdelete(box);
+}
 
 TEST_CASE("[SceneTree][CSG] CSGBevelModifier") {
 	CSGBox3D *box = memnew(CSGBox3D);

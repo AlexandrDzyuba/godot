@@ -19,6 +19,7 @@ def get_doc_classes():
         "CSGPrimitive3D",
         "CSGShape3D",
         "CSGSphere3D",
+        "CSGTopologySettings",
         "CSGTorus3D",
     ]
 

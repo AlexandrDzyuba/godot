@@ -32,6 +32,7 @@
 
 #include "csg.h"
 #include "csg_modifier.h"
+#include "csg_topology_settings.h"
 
 #include "scene/3d/path_3d.h"
 #include "scene/3d/visual_instance_3d.h"
@@ -86,6 +87,7 @@ private:
 	bool calculate_tangents = true;
 
 	TypedArray<CSGModifier> modifiers;
+	Ref<CSGTopologySettings> topology_settings;
 
 	Ref<ArrayMesh> root_mesh;
 
@@ -127,8 +129,11 @@ private:
 
 	void _build_surfaces_smoothed(CSGBrush *p_brush, Vector<ShapeUpdateSurface> &r_surfaces, Vector<int> &r_face_count);
 	void _build_surfaces_default(CSGBrush *p_brush, Vector<ShapeUpdateSurface> &r_surfaces, Vector<int> &r_face_count);
-	void _process_modifiers(CSGBrush *p_brush, bool p_geometry_modifiers);
+	void _process_modifiers(CSGBrush *p_brush, CSGModifier::ProcessStage p_stage);
 	void _modifier_changed();
+	void _topology_settings_changed();
+	void _process_topology(CSGBrush *p_brush);
+	void _process_edge_volume_topology(CSGBrush *p_brush);
 
 protected:
 	void _notification(int p_what);
@@ -190,6 +195,9 @@ public:
 
 	void set_modifiers(const TypedArray<CSGModifier> &p_modifiers);
 	TypedArray<CSGModifier> get_modifiers() const;
+
+	void set_topology_settings(const Ref<CSGTopologySettings> &p_topology_settings);
+	Ref<CSGTopologySettings> get_topology_settings() const;
 
 	bool is_root_shape() const;
 

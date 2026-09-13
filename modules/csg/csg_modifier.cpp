@@ -169,8 +169,8 @@ bool CSGModifier::is_enabled() const {
 	return enabled;
 }
 
-bool CSGModifier::modifies_geometry() const {
-	return false;
+uint32_t CSGModifier::get_process_stages() const {
+	return PROCESS_STAGE_RESULT;
 }
 
 void CSGModifier::process(const Ref<CSGModifierContext> &p_context) {

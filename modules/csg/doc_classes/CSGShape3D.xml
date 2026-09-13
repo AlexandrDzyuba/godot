@@ -102,6 +102,9 @@
 		<member name="snap" type="float" setter="set_snap" getter="get_snap" deprecated="The CSG library no longer uses snapping.">
 			This property does nothing.
 		</member>
+		<member name="topology_settings" type="CSGTopologySettings" setter="set_topology_settings" getter="get_topology_settings">
+			Optional topology processing applied after this shape's child Boolean operations and before its result modifier stack. If unset or configured with [constant CSGTopologySettings.TOPOLOGY_NONE], the normal CSG build path is unchanged.
+		</member>
 		<member name="use_collision" type="bool" setter="set_use_collision" getter="is_using_collision" default="false">
 			Adds a collision shape to the physics engine for our CSG shape. This will always act like a static body. Note that the collision shape is still active even if the CSG shape itself is hidden. See also [member collision_mask] and [member collision_priority].
 		</member>

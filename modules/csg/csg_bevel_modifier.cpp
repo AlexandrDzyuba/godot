@@ -182,9 +182,16 @@ void CSGBevelModifier::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_width"), &CSGBevelModifier::get_width);
 	ClassDB::bind_method(D_METHOD("set_angle", "angle"), &CSGBevelModifier::set_angle);
 	ClassDB::bind_method(D_METHOD("get_angle"), &CSGBevelModifier::get_angle);
+	ClassDB::bind_method(D_METHOD("set_application_mode", "mode"), &CSGBevelModifier::set_application_mode);
+	ClassDB::bind_method(D_METHOD("get_application_mode"), &CSGBevelModifier::get_application_mode);
 
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "width", PROPERTY_HINT_RANGE, "0,10,0.001,or_greater,suffix:m"), "set_width", "get_width");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "angle", PROPERTY_HINT_RANGE, "0,180,0.1,radians_as_degrees"), "set_angle", "get_angle");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "application_mode", PROPERTY_HINT_ENUM, "Operands,Result,Both"), "set_application_mode", "get_application_mode");
+
+	BIND_ENUM_CONSTANT(APPLICATION_MODE_OPERANDS);
+	BIND_ENUM_CONSTANT(APPLICATION_MODE_RESULT);
+	BIND_ENUM_CONSTANT(APPLICATION_MODE_BOTH);
 }
 
 void CSGBevelModifier::set_width(real_t p_width) {
@@ -213,8 +220,29 @@ real_t CSGBevelModifier::get_angle() const {
 	return angle;
 }
 
-bool CSGBevelModifier::modifies_geometry() const {
-	return true;
+void CSGBevelModifier::set_application_mode(ApplicationMode p_mode) {
+	ERR_FAIL_INDEX(int(p_mode), int(APPLICATION_MODE_BOTH) + 1);
+	if (application_mode == p_mode) {
+		return;
+	}
+	application_mode = p_mode;
+	emit_changed();
+}
+
+CSGBevelModifier::ApplicationMode CSGBevelModifier::get_application_mode() const {
+	return application_mode;
+}
+
+uint32_t CSGBevelModifier::get_process_stages() const {
+	switch (application_mode) {
+		case APPLICATION_MODE_OPERANDS:
+			return PROCESS_STAGE_OPERANDS;
+		case APPLICATION_MODE_BOTH:
+			return PROCESS_STAGE_OPERANDS | PROCESS_STAGE_RESULT;
+		case APPLICATION_MODE_RESULT:
+		default:
+			return PROCESS_STAGE_RESULT;
+	}
 }
 
 void CSGBevelModifier::process(const Ref<CSGModifierContext> &p_context) {

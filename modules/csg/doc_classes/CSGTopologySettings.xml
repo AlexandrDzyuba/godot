@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CSGTopologySettings" inherits="Resource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Configures optional topology-derived geometry for a [CSGShape3D].
+	</brief_description>
+	<description>
+		Configures native topology processing performed after a [CSGShape3D] combines its local geometry and child Boolean operations, and before its result modifiers run. The temporary topology and adjacency data is only built when [member mode] is not [constant TOPOLOGY_NONE].
+	</description>
+	<tutorials>
+	</tutorials>
+	<members>
+		<member name="angle_threshold" type="float" setter="set_angle_threshold" getter="get_angle_threshold" default="0.523599">
+			The minimum angle between adjacent triangle faces for their shared edge to be retained. Coplanar triangulation edges are always ignored.
+		</member>
+		<member name="edge_width" type="float" setter="set_edge_width" getter="get_edge_width" default="0.05">
+			The width of each closed edge volume, in meters.
+		</member>
+		<member name="merge_epsilon" type="float" setter="set_merge_epsilon" getter="get_merge_epsilon" default="0.00001">
+			The maximum distance between triangle vertices for them to be treated as the same geometric vertex while building adjacency.
+		</member>
+		<member name="mode" type="int" setter="set_mode" getter="get_mode" enum="CSGTopologySettings.TopologyMode" default="0">
+			The topology processing mode. No topology structures are built when this is [constant TOPOLOGY_NONE].
+		</member>
+	</members>
+	<constants>
+		<constant name="TOPOLOGY_NONE" value="0" enum="TopologyMode">
+			Disables topology processing.
+		</constant>
+		<constant name="TOPOLOGY_EDGE_VOLUME" value="1" enum="TopologyMode">
+			Replaces the shape with the union of closed volumes generated around its geometric edges.
+		</constant>
+	</constants>
+</class>
