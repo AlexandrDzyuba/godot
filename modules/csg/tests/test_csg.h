@@ -30,7 +30,6 @@
 
 #pragma once
 
-#include "../csg_bevel_modifier.h"
 #include "../csg_bevel_settings.h"
 #include "../csg_shape.h"
 #include "../csg_topology_settings.h"
@@ -67,56 +66,7 @@ TEST_CASE("[SceneTree][CSG] CSG EDGE_VOLUME topology") {
 	memdelete(box);
 }
 
-TEST_CASE("[SceneTree][CSG] CSGBevelModifier") {
-	CSGBox3D *box = memnew(CSGBox3D);
-	SceneTree::get_singleton()->get_root()->add_child(box);
-
-	const Vector<Vector3> original_faces = box->get_brush_faces();
-	CHECK(original_faces.size() == 36);
-
-	Ref<CSGBevelModifier> bevel;
-	bevel.instantiate();
-	CHECK(bevel->get_application_mode() == CSGBevelModifier::APPLICATION_MODE_OPERANDS);
-	bevel->set_width(0.1);
-	TypedArray<CSGModifier> modifiers;
-	modifiers.push_back(bevel);
-	box->set_modifiers(modifiers);
-
-	const Vector<Vector3> beveled_faces = box->get_brush_faces();
-	CHECK(beveled_faces.size() > original_faces.size());
-	CHECK(box->get_aabb().is_equal_approx(AABB(Vector3(-0.5, -0.5, -0.5), Vector3(1, 1, 1))));
-
-	bevel->set_enabled(false);
-	CHECK(box->get_brush_faces().size() == original_faces.size());
-
-	SceneTree::get_singleton()->get_root()->remove_child(box);
-	memdelete(box);
-}
-
-TEST_CASE("[SceneTree][CSG] CSGBevelModifier on parent") {
-	CSGCombiner3D *combiner = memnew(CSGCombiner3D);
-	SceneTree::get_singleton()->get_root()->add_child(combiner);
-
-	CSGBox3D *first_box = memnew(CSGBox3D);
-	CSGBox3D *second_box = memnew(CSGBox3D);
-	second_box->set_position(Vector3(2, 0, 0));
-	combiner->add_child(first_box);
-	combiner->add_child(second_box);
-
-	const Vector<Vector3> original_faces = combiner->get_brush_faces();
-	Ref<CSGBevelModifier> bevel;
-	bevel.instantiate();
-	TypedArray<CSGModifier> modifiers;
-	modifiers.push_back(bevel);
-	combiner->set_modifiers(modifiers);
-
-	CHECK(combiner->get_brush_faces().size() > original_faces.size());
-
-	SceneTree::get_singleton()->get_root()->remove_child(combiner);
-	memdelete(combiner);
-}
-
-TEST_CASE("[SceneTree][CSG] Parent bevel processes child topology") {
+TEST_CASE("[SceneTree][CSG] Native parent bevel processes child topology") {
 	CSGCombiner3D *combiner = memnew(CSGCombiner3D);
 	SceneTree::get_singleton()->get_root()->add_child(combiner);
 
@@ -130,12 +80,10 @@ TEST_CASE("[SceneTree][CSG] Parent bevel processes child topology") {
 	const Vector<Vector3> topology_faces = combiner->get_brush_faces();
 	CHECK_FALSE(topology_faces.is_empty());
 
-	Ref<CSGBevelModifier> bevel;
-	bevel.instantiate();
-	bevel->set_width(0.01);
-	TypedArray<CSGModifier> modifiers;
-	modifiers.push_back(bevel);
-	combiner->set_modifiers(modifiers);
+	Ref<CSGBevelSettings> bevel_settings;
+	bevel_settings.instantiate();
+	bevel_settings->set_width(0.01);
+	combiner->set_bevel_settings(bevel_settings);
 
 	const Vector<Vector3> beveled_faces = combiner->get_brush_faces();
 	CHECK_FALSE(beveled_faces.is_empty());
@@ -143,74 +91,6 @@ TEST_CASE("[SceneTree][CSG] Parent bevel processes child topology") {
 
 	SceneTree::get_singleton()->get_root()->remove_child(combiner);
 	memdelete(combiner);
-}
-
-TEST_CASE("[SceneTree][CSG] Result bevel remains stable when moving a subtraction operand") {
-	CSGBox3D *shape = memnew(CSGBox3D);
-	shape->set_size(Vector3(4, 2, 4));
-	SceneTree::get_singleton()->get_root()->add_child(shape);
-
-	CSGBox3D *cutter = memnew(CSGBox3D);
-	cutter->set_size(Vector3(1, 2, 2));
-	cutter->set_operation(CSGShape3D::OPERATION_SUBTRACTION);
-	cutter->set_position(Vector3(0.0, 1.0, 0.0));
-	shape->add_child(cutter);
-
-	Ref<CSGBevelModifier> bevel;
-	bevel.instantiate();
-	bevel->set_application_mode(CSGBevelModifier::APPLICATION_MODE_RESULT);
-	bevel->set_width(0.1);
-	TypedArray<CSGModifier> modifiers;
-	modifiers.push_back(bevel);
-
-	const int first_unmodified_face_count = shape->get_brush_faces().size();
-	shape->set_modifiers(modifiers);
-	CHECK(shape->get_brush_faces().size() > first_unmodified_face_count);
-
-	shape->set_modifiers(TypedArray<CSGModifier>());
-	cutter->set_position(Vector3(0.137, 1.0, -0.083));
-	const int second_unmodified_face_count = shape->get_brush_faces().size();
-	shape->set_modifiers(modifiers);
-	CHECK(shape->get_brush_faces().size() > second_unmodified_face_count);
-
-	SceneTree::get_singleton()->get_root()->remove_child(shape);
-	memdelete(shape);
-}
-
-TEST_CASE("[SceneTree][CSG] Zero-angle result bevel ignores coplanar Boolean triangulation") {
-	CSGBox3D *shape = memnew(CSGBox3D);
-	shape->set_size(Vector3(3.6121826, 1, 1));
-	SceneTree::get_singleton()->get_root()->add_child(shape);
-
-	CSGBox3D *cutter = memnew(CSGBox3D);
-	cutter->set_size(Vector3(0.4831543, 1, 1.6128159));
-	cutter->set_operation(CSGShape3D::OPERATION_SUBTRACTION);
-	cutter->set_position(Vector3(0.51507425, 0.43687516, 0.04569912));
-	shape->add_child(cutter);
-
-	const int unmodified_face_count = shape->get_brush_faces().size();
-	Ref<CSGBevelModifier> bevel;
-	bevel.instantiate();
-	bevel->set_application_mode(CSGBevelModifier::APPLICATION_MODE_RESULT);
-	bevel->set_width(0.02);
-	bevel->set_angle(0.0);
-	TypedArray<CSGModifier> modifiers;
-	modifiers.push_back(bevel);
-	shape->set_modifiers(modifiers);
-
-	CHECK(shape->get_brush_faces().size() > unmodified_face_count);
-
-	shape->set_modifiers(TypedArray<CSGModifier>());
-	CSGBox3D *additional_union = memnew(CSGBox3D);
-	additional_union->set_size(Vector3(0.5, 0.5, 0.5));
-	additional_union->set_position(Vector3(-1.75, 0.0, 0.0));
-	shape->add_child(additional_union);
-	const int unmodified_with_union_face_count = shape->get_brush_faces().size();
-	shape->set_modifiers(modifiers);
-	CHECK(shape->get_brush_faces().size() > unmodified_with_union_face_count);
-
-	SceneTree::get_singleton()->get_root()->remove_child(shape);
-	memdelete(shape);
 }
 
 TEST_CASE("[SceneTree][CSG] Native bevel processes the node Boolean result") {

@@ -743,7 +743,7 @@ static bool _process_topology(const manifold::Manifold &p_source, const Ref<CSGT
 
 } // namespace
 
-void CSGShape3D::_process_modifiers(CSGBrush *p_brush, CSGModifier::ProcessStage p_stage) {
+void CSGShape3D::_process_modifiers(CSGBrush *p_brush) {
 	if (!p_brush || modifiers.is_empty()) {
 		return;
 	}
@@ -753,7 +753,7 @@ void CSGShape3D::_process_modifiers(CSGBrush *p_brush, CSGModifier::ProcessStage
 	context->setup(p_brush);
 	for (int i = 0; i < modifiers.size(); i++) {
 		Ref<CSGModifier> modifier = modifiers[i];
-		if (modifier.is_valid() && (modifier->get_process_stages() & p_stage)) {
+		if (modifier.is_valid()) {
 			modifier->process(context);
 		}
 	}
@@ -769,7 +769,6 @@ CSGBrush *CSGShape3D::_get_brush() {
 	}
 	brush = nullptr;
 	CSGBrush *n = _build_brush();
-	_process_modifiers(n, CSGModifier::PROCESS_STAGE_OPERANDS);
 	bool has_colors = n && n->has_colors;
 	uint32_t custom_channels = n ? n->custom_channels : 0;
 	Mesh::ArrayCustomFormat custom_formats[CSGBrush::CUSTOM_CHANNEL_COUNT] = {
@@ -811,7 +810,6 @@ CSGBrush *CSGShape3D::_get_brush() {
 
 		CSGBrush transformed_brush;
 		transformed_brush.copy_from(*child_brush, child->get_transform());
-		_process_modifiers(&transformed_brush, CSGModifier::PROCESS_STAGE_OPERANDS);
 		manifold::Manifold child_manifold;
 		_pack_manifold(&transformed_brush, child_manifold, mesh_materials, child);
 		manifold::OpType child_operation = ManifoldOperation::convert_csg_op(child->get_operation());
@@ -861,7 +859,7 @@ CSGBrush *CSGShape3D::_get_brush() {
 			_unpack_manifold(manifold_result, mesh_materials, n);
 		}
 	}
-	_process_modifiers(n, CSGModifier::PROCESS_STAGE_RESULT);
+	_process_modifiers(n);
 
 	AABB aabb;
 	if (n && !n->faces.is_empty()) {

@@ -169,10 +169,6 @@ bool CSGModifier::is_enabled() const {
 	return enabled;
 }
 
-uint32_t CSGModifier::get_process_stages() const {
-	return PROCESS_STAGE_RESULT;
-}
-
 void CSGModifier::process(const Ref<CSGModifierContext> &p_context) {
 	if (!enabled) {
 		return;

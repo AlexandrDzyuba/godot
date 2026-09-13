@@ -11,11 +11,8 @@
 #include "core/object/ref_counted.h"
 #include "core/variant/typed_array.h"
 
-class CSGBevelModifier;
-
 class CSGModifierContext : public RefCounted {
 	GDCLASS(CSGModifierContext, RefCounted);
-	friend class CSGBevelModifier;
 
 	CSGBrush *brush = nullptr;
 
@@ -47,12 +44,6 @@ public:
 class CSGModifier : public Resource {
 	GDCLASS(CSGModifier, Resource);
 
-public:
-	enum ProcessStage {
-		PROCESS_STAGE_OPERANDS = 1,
-		PROCESS_STAGE_RESULT = 2,
-	};
-
 private:
 	bool enabled = true;
 
@@ -64,6 +55,5 @@ public:
 	void set_enabled(bool p_enabled);
 	bool is_enabled() const;
 
-	virtual uint32_t get_process_stages() const;
 	virtual void process(const Ref<CSGModifierContext> &p_context);
 };

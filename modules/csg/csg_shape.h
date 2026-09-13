@@ -131,7 +131,7 @@ private:
 
 	void _build_surfaces_smoothed(CSGBrush *p_brush, Vector<ShapeUpdateSurface> &r_surfaces, Vector<int> &r_face_count);
 	void _build_surfaces_default(CSGBrush *p_brush, Vector<ShapeUpdateSurface> &r_surfaces, Vector<int> &r_face_count);
-	void _process_modifiers(CSGBrush *p_brush, CSGModifier::ProcessStage p_stage);
+	void _process_modifiers(CSGBrush *p_brush);
 	void _modifier_changed();
 	void _bevel_settings_changed();
 	void _topology_settings_changed();
