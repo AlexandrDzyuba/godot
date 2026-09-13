@@ -4,8 +4,8 @@
 		Base resource for modifying the generated geometry of a CSG shape.
 	</brief_description>
 	<description>
-		A CSG modifier is applied to the result of a [CSGShape3D] after its Boolean operations have completed and before the render mesh, collision, and navigation geometry are generated. Modifiers in [member CSGShape3D.modifiers] are applied in array order.
-		Override [method _process] to implement a modifier in a script. Built-in modifiers can also change the topology of the generated CSG brush.
+		A CSG modifier is applied before the render mesh, collision, and navigation geometry are generated. Attribute modifiers are applied to the result of a [CSGShape3D] after its Boolean operations have completed. Built-in geometry modifiers are applied to the shape's operands before the Boolean operation, including temporary copies of child brushes. Modifiers within the same stage are applied in array order.
+		Override [method _process] to implement an attribute modifier in a script. Built-in modifiers can also change the topology of the generated CSG brush.
 	</description>
 	<methods>
 		<method name="_process" qualifiers="virtual">

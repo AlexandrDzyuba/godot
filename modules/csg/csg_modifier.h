@@ -57,5 +57,6 @@ public:
 	void set_enabled(bool p_enabled);
 	bool is_enabled() const;
 
+	virtual bool modifies_geometry() const;
 	virtual void process(const Ref<CSGModifierContext> &p_context);
 };

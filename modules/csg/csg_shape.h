@@ -127,6 +127,7 @@ private:
 
 	void _build_surfaces_smoothed(CSGBrush *p_brush, Vector<ShapeUpdateSurface> &r_surfaces, Vector<int> &r_face_count);
 	void _build_surfaces_default(CSGBrush *p_brush, Vector<ShapeUpdateSurface> &r_surfaces, Vector<int> &r_face_count);
+	void _process_modifiers(CSGBrush *p_brush, bool p_geometry_modifiers);
 	void _modifier_changed();
 
 protected:

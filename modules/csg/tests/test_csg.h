@@ -64,6 +64,29 @@ TEST_CASE("[SceneTree][CSG] CSGBevelModifier") {
 	memdelete(box);
 }
 
+TEST_CASE("[SceneTree][CSG] CSGBevelModifier on parent") {
+	CSGCombiner3D *combiner = memnew(CSGCombiner3D);
+	SceneTree::get_singleton()->get_root()->add_child(combiner);
+
+	CSGBox3D *first_box = memnew(CSGBox3D);
+	CSGBox3D *second_box = memnew(CSGBox3D);
+	second_box->set_position(Vector3(2, 0, 0));
+	combiner->add_child(first_box);
+	combiner->add_child(second_box);
+
+	const Vector<Vector3> original_faces = combiner->get_brush_faces();
+	Ref<CSGBevelModifier> bevel;
+	bevel.instantiate();
+	TypedArray<CSGModifier> modifiers;
+	modifiers.push_back(bevel);
+	combiner->set_modifiers(modifiers);
+
+	CHECK(combiner->get_brush_faces().size() > original_faces.size());
+
+	SceneTree::get_singleton()->get_root()->remove_child(combiner);
+	memdelete(combiner);
+}
+
 TEST_CASE("[SceneTree][CSG] CSGPolygon3D") {
 	SUBCASE("[SceneTree][CSG] CSGPolygon3D: using accurate path tangent for polygon rotation") {
 		const float polygon_radius = 10.0f;

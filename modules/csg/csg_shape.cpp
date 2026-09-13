@@ -524,6 +524,23 @@ struct ManifoldOperation {
 			manifold(m), operation(op) {}
 };
 
+void CSGShape3D::_process_modifiers(CSGBrush *p_brush, bool p_geometry_modifiers) {
+	if (!p_brush || modifiers.is_empty()) {
+		return;
+	}
+
+	Ref<CSGModifierContext> context;
+	context.instantiate();
+	context->setup(p_brush);
+	for (int i = 0; i < modifiers.size(); i++) {
+		Ref<CSGModifier> modifier = modifiers[i];
+		if (modifier.is_valid() && modifier->modifies_geometry() == p_geometry_modifiers) {
+			modifier->process(context);
+		}
+	}
+	p_brush->_regen_face_aabbs();
+}
+
 CSGBrush *CSGShape3D::_get_brush() {
 	if (!dirty) {
 		return brush;
@@ -533,6 +550,7 @@ CSGBrush *CSGShape3D::_get_brush() {
 	}
 	brush = nullptr;
 	CSGBrush *n = _build_brush();
+	_process_modifiers(n, true);
 	bool has_colors = n && n->has_colors;
 	uint32_t custom_channels = n ? n->custom_channels : 0;
 	Mesh::ArrayCustomFormat custom_formats[CSGBrush::CUSTOM_CHANNEL_COUNT] = {
@@ -574,6 +592,7 @@ CSGBrush *CSGShape3D::_get_brush() {
 
 		CSGBrush transformed_brush;
 		transformed_brush.copy_from(*child_brush, child->get_transform());
+		_process_modifiers(&transformed_brush, true);
 		manifold::Manifold child_manifold;
 		_pack_manifold(&transformed_brush, child_manifold, mesh_materials, child);
 		manifold::OpType child_operation = ManifoldOperation::convert_csg_op(child->get_operation());
@@ -599,18 +618,7 @@ CSGBrush *CSGShape3D::_get_brush() {
 		_unpack_manifold(manifold_result, mesh_materials, n);
 	}
 
-	if (n && !modifiers.is_empty()) {
-		Ref<CSGModifierContext> context;
-		context.instantiate();
-		context->setup(n);
-		for (int i = 0; i < modifiers.size(); i++) {
-			Ref<CSGModifier> modifier = modifiers[i];
-			if (modifier.is_valid()) {
-				modifier->process(context);
-			}
-		}
-		n->_regen_face_aabbs();
-	}
+	_process_modifiers(n, false);
 
 	AABB aabb;
 	if (n && !n->faces.is_empty()) {
@@ -681,7 +689,6 @@ void CSGShape3D::mikktSetTSpaceDefault(const SMikkTSpaceContext *pContext, const
 	surface.tansw[i++] = tangent.z;
 	surface.tansw[i++] = d < 0 ? -1 : 1;
 }
-
 
 static Variant _csg_pack_custom_array(const Vector<Vector4> &p_values, Mesh::ArrayCustomFormat p_format) {
 	if (p_format >= Mesh::ARRAY_CUSTOM_R_FLOAT) {
@@ -1354,7 +1361,6 @@ Ref<TriangleMesh> CSGShape3D::generate_triangle_mesh() const {
 	}
 	return Ref<TriangleMesh>();
 }
-
 
 void CSGShape3D::_modifier_changed() {
 	_make_dirty();

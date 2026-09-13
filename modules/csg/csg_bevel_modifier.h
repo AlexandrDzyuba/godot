@@ -24,5 +24,6 @@ public:
 	void set_angle(real_t p_angle);
 	real_t get_angle() const;
 
+	virtual bool modifies_geometry() const override;
 	virtual void process(const Ref<CSGModifierContext> &p_context) override;
 };

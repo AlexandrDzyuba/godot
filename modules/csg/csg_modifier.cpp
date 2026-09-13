@@ -169,6 +169,10 @@ bool CSGModifier::is_enabled() const {
 	return enabled;
 }
 
+bool CSGModifier::modifies_geometry() const {
+	return false;
+}
+
 void CSGModifier::process(const Ref<CSGModifierContext> &p_context) {
 	if (!enabled) {
 		return;

@@ -213,6 +213,10 @@ real_t CSGBevelModifier::get_angle() const {
 	return angle;
 }
 
+bool CSGBevelModifier::modifies_geometry() const {
+	return true;
+}
+
 void CSGBevelModifier::process(const Ref<CSGModifierContext> &p_context) {
 	if (!is_enabled() || p_context.is_null() || width <= 0.0) {
 		return;

@@ -4,7 +4,7 @@
 		Creates a flat bevel on sharp edges of generated CSG geometry.
 	</brief_description>
 	<description>
-		Rebuilds generated CSG geometry by insetting adjacent faces, adding a chamfer along qualifying edges, and closing the resulting corners. Coplanar triangulation edges are ignored. The modifier runs after the shape's Boolean operations, so it bevels the visible Boolean result.
+		Rebuilds generated CSG geometry by insetting adjacent faces, adding a chamfer along qualifying edges, and closing the resulting corners. Coplanar triangulation edges are ignored. As a geometry modifier, it is applied to the owning shape and temporary copies of its child operands before their Boolean operation.
 		The modifier creates a single flat bevel segment.
 	</description>
 	<members>
