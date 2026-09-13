@@ -8,7 +8,7 @@
 		The modifier creates a single flat bevel segment.
 	</description>
 	<members>
-		<member name="application_mode" type="int" setter="set_application_mode" getter="get_application_mode" enum="CSGBevelModifier.ApplicationMode" default="1">
+		<member name="application_mode" type="int" setter="set_application_mode" getter="get_application_mode" enum="CSGBevelModifier.ApplicationMode" default="0">
 			Controls whether the bevel is applied before or after Boolean operations. Use [constant APPLICATION_MODE_RESULT] to bevel edges created by subtraction and intersection operations.
 		</member>
 		<member name="angle" type="float" setter="set_angle" getter="get_angle" default="0.523599">

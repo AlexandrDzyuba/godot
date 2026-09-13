@@ -31,6 +31,7 @@
 #pragma once
 
 #include "csg.h"
+#include "csg_bevel_settings.h"
 #include "csg_modifier.h"
 #include "csg_topology_settings.h"
 
@@ -87,6 +88,7 @@ private:
 	bool calculate_tangents = true;
 
 	TypedArray<CSGModifier> modifiers;
+	Ref<CSGBevelSettings> bevel_settings;
 	Ref<CSGTopologySettings> topology_settings;
 
 	Ref<ArrayMesh> root_mesh;
@@ -131,9 +133,8 @@ private:
 	void _build_surfaces_default(CSGBrush *p_brush, Vector<ShapeUpdateSurface> &r_surfaces, Vector<int> &r_face_count);
 	void _process_modifiers(CSGBrush *p_brush, CSGModifier::ProcessStage p_stage);
 	void _modifier_changed();
+	void _bevel_settings_changed();
 	void _topology_settings_changed();
-	void _process_topology(CSGBrush *p_brush);
-	void _process_edge_volume_topology(CSGBrush *p_brush);
 
 protected:
 	void _notification(int p_what);
@@ -195,6 +196,8 @@ public:
 
 	void set_modifiers(const TypedArray<CSGModifier> &p_modifiers);
 	TypedArray<CSGModifier> get_modifiers() const;
+	void set_bevel_settings(const Ref<CSGBevelSettings> &p_bevel_settings);
+	Ref<CSGBevelSettings> get_bevel_settings() const;
 
 	void set_topology_settings(const Ref<CSGTopologySettings> &p_topology_settings);
 	Ref<CSGTopologySettings> get_topology_settings() const;

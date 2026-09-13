@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  csg_native_bevel.h                                                    */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,49 +28,10 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
 
-#include "csg_bevel_modifier.h"
 #include "csg_bevel_settings.h"
-#include "csg_modifier.h"
-#include "csg_shape.h"
-#include "csg_topology_settings.h"
 
-#include "core/object/class_db.h"
+#include <manifold/manifold.h>
 
-#ifdef TOOLS_ENABLED
-#include "editor/csg_gizmos.h"
-#endif
-
-void initialize_csg_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		GDREGISTER_CLASS(CSGModifierContext);
-		GDREGISTER_CLASS(CSGModifier);
-		GDREGISTER_CLASS(CSGBevelModifier);
-		GDREGISTER_CLASS(CSGBevelSettings);
-		GDREGISTER_CLASS(CSGTopologySettings);
-		GDREGISTER_ABSTRACT_CLASS(CSGShape3D);
-		GDREGISTER_ABSTRACT_CLASS(CSGPrimitive3D);
-		GDREGISTER_CLASS(CSGMesh3D);
-		GDREGISTER_CLASS(CSGSphere3D);
-		GDREGISTER_CLASS(CSGBox3D);
-		GDREGISTER_CLASS(CSGCylinder3D);
-		GDREGISTER_CLASS(CSGTorus3D);
-		GDREGISTER_CLASS(CSGPolygon3D);
-		GDREGISTER_CLASS(CSGCombiner3D);
-#ifndef NAVIGATION_3D_DISABLED
-		CSGShape3D::navmesh_parse_init();
-#endif // NAVIGATION_3D_DISABLED
-	}
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		EditorPlugins::add_by_type<EditorPluginCSG>();
-	}
-#endif
-}
-
-void uninitialize_csg_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
-		return;
-	}
-}
+bool csg_build_native_bevel(const manifold::Manifold &p_source, const Ref<CSGBevelSettings> &p_settings, manifold::Manifold &r_result);

@@ -19,7 +19,7 @@ public:
 private:
 	real_t width = 0.1;
 	real_t angle = Math::deg_to_rad(30.0);
-	ApplicationMode application_mode = APPLICATION_MODE_RESULT;
+	ApplicationMode application_mode = APPLICATION_MODE_OPERANDS;
 
 	void _process_brush(CSGBrush *p_brush) const;
 

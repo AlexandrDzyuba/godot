@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  csg_bevel_settings.h                                                  */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,49 +28,31 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
 
-#include "csg_bevel_modifier.h"
-#include "csg_bevel_settings.h"
-#include "csg_modifier.h"
-#include "csg_shape.h"
-#include "csg_topology_settings.h"
+#include "core/io/resource.h"
+#include "core/math/math_funcs.h"
 
-#include "core/object/class_db.h"
+class CSGBevelSettings : public Resource {
+	GDCLASS(CSGBevelSettings, Resource);
 
-#ifdef TOOLS_ENABLED
-#include "editor/csg_gizmos.h"
-#endif
+	bool enabled = true;
+	bool debug_print = false;
+	real_t width = 0.1;
+	real_t angle_threshold = Math::deg_to_rad(30.0);
 
-void initialize_csg_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		GDREGISTER_CLASS(CSGModifierContext);
-		GDREGISTER_CLASS(CSGModifier);
-		GDREGISTER_CLASS(CSGBevelModifier);
-		GDREGISTER_CLASS(CSGBevelSettings);
-		GDREGISTER_CLASS(CSGTopologySettings);
-		GDREGISTER_ABSTRACT_CLASS(CSGShape3D);
-		GDREGISTER_ABSTRACT_CLASS(CSGPrimitive3D);
-		GDREGISTER_CLASS(CSGMesh3D);
-		GDREGISTER_CLASS(CSGSphere3D);
-		GDREGISTER_CLASS(CSGBox3D);
-		GDREGISTER_CLASS(CSGCylinder3D);
-		GDREGISTER_CLASS(CSGTorus3D);
-		GDREGISTER_CLASS(CSGPolygon3D);
-		GDREGISTER_CLASS(CSGCombiner3D);
-#ifndef NAVIGATION_3D_DISABLED
-		CSGShape3D::navmesh_parse_init();
-#endif // NAVIGATION_3D_DISABLED
-	}
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		EditorPlugins::add_by_type<EditorPluginCSG>();
-	}
-#endif
-}
+protected:
+	static void _bind_methods();
 
-void uninitialize_csg_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
-		return;
-	}
-}
+public:
+	void set_enabled(bool p_enabled);
+	bool is_enabled() const;
+	void set_debug_print(bool p_enabled);
+	bool is_debug_printing() const;
+
+	void set_width(real_t p_width);
+	real_t get_width() const;
+
+	void set_angle_threshold(real_t p_angle_threshold);
+	real_t get_angle_threshold() const;
+};

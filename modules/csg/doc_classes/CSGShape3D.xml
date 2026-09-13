@@ -78,6 +78,9 @@
 			Enables automatic smoothing. This overrides any smoothing on the CSG node and instead uses [member smoothing_angle] to calculate normals based on the angle between faces.
 			Children of a [CSGCombiner3D] node will be treated as a single mesh.
 		</member>
+		<member name="bevel_settings" type="CSGBevelSettings" setter="set_bevel_settings" getter="get_bevel_settings">
+			Optional native bevel applied after this shape combines its local geometry with all child Boolean operations, and before topology processing. A child shape's bevel is therefore part of the operand received by its parent, while a bevel on a parent processes the parent's completed Boolean result.
+		</member>
 		<member name="calculate_tangents" type="bool" setter="set_calculate_tangents" getter="is_calculating_tangents" default="true">
 			Calculate tangents for the CSG shape which allows the use of normal and height maps. This is only applied on the root shape, this setting is ignored on any child. Setting this to [code]false[/code] can speed up shape generation slightly.
 		</member>

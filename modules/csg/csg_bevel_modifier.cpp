@@ -30,13 +30,7 @@ struct BevelPoint {
 
 struct CapPoint {
 	BevelPoint point;
-	real_t angle = 0.0;
-};
-
-struct CapPointSort {
-	_FORCE_INLINE_ bool operator()(const CapPoint &p_a, const CapPoint &p_b) const {
-		return p_a.angle < p_b.angle;
-	}
+	Vector<int> neighbors;
 };
 
 struct BevelEdgeUse {
@@ -50,11 +44,45 @@ static uint64_t _edge_key(int p_a, int p_b) {
 	return (uint64_t(a) << 32) | b;
 }
 
-static bool _same_plane(const CSGBrush::Face &p_face_a, const BevelFace &p_info_a, const CSGBrush::Face &p_face_b, const BevelFace &p_info_b) {
+static constexpr real_t BEVEL_MERGE_EPSILON = 0.00001;
+
+static Vector3i _vertex_cell(const Vector3 &p_position, real_t p_epsilon) {
+	return Vector3i(
+			Math::floor(p_position.x / p_epsilon),
+			Math::floor(p_position.y / p_epsilon),
+			Math::floor(p_position.z / p_epsilon));
+}
+
+static int _weld_vertex(const Vector3 &p_position, real_t p_epsilon, HashMap<Vector3i, Vector<int>> &r_cells, Vector<Vector3> &r_vertices) {
+	const Vector3i cell = _vertex_cell(p_position, p_epsilon);
+	const real_t epsilon_squared = p_epsilon * p_epsilon;
+	for (int x = -1; x <= 1; x++) {
+		for (int y = -1; y <= 1; y++) {
+			for (int z = -1; z <= 1; z++) {
+				HashMap<Vector3i, Vector<int>>::ConstIterator candidates = r_cells.find(cell + Vector3i(x, y, z));
+				if (!candidates) {
+					continue;
+				}
+				for (int vertex : candidates->value) {
+					if (r_vertices[vertex].distance_squared_to(p_position) <= epsilon_squared) {
+						return vertex;
+					}
+				}
+			}
+		}
+	}
+
+	const int vertex = r_vertices.size();
+	r_vertices.push_back(p_position);
+	r_cells[cell].push_back(vertex);
+	return vertex;
+}
+
+static bool _same_plane(const CSGBrush::Face &p_face_a, const BevelFace &p_info_a, const CSGBrush::Face &p_face_b, const BevelFace &p_info_b, real_t p_epsilon) {
 	if (p_info_a.normal.dot(p_info_b.normal) < 1.0 - CMP_EPSILON * 10.0) {
 		return false;
 	}
-	return Math::is_zero_approx(p_info_a.normal.dot(p_face_b.vertices[0] - p_face_a.vertices[0]));
+	return Math::abs(p_info_a.normal.dot(p_face_b.vertices[0] - p_face_a.vertices[0])) <= p_epsilon;
 }
 
 static BevelPoint _interpolate_point(const CSGBrush::Face &p_face, const Vector3 &p_position) {
@@ -141,20 +169,65 @@ static void _join_regions(Vector<int> &r_parents, int p_a, int p_b) {
 	}
 }
 
-static bool _is_closed_manifold(const Vector<CSGBrush::Face> &p_faces) {
-	HashMap<Vector3, int> vertex_map;
+static bool _has_region_pair(const BevelEdge &p_edge, int p_region_a, int p_region_b, const Vector<int> &p_face_regions) {
+	if (p_edge.faces.size() != 2) {
+		return false;
+	}
+	const int edge_region_a = p_face_regions[p_edge.faces[0]];
+	const int edge_region_b = p_face_regions[p_edge.faces[1]];
+	return (edge_region_a == p_region_a && edge_region_b == p_region_b) || (edge_region_a == p_region_b && edge_region_b == p_region_a);
+}
+
+static real_t _get_edge_run_length(uint64_t p_edge_key, const HashMap<uint64_t, BevelEdge> &p_edges, const Vector<Vector<uint64_t>> &p_vertex_edges, const Vector<Vector3> &p_vertices, const Vector<int> &p_face_regions) {
+	const BevelEdge &initial_edge = p_edges[p_edge_key];
+	const int region_a = p_face_regions[initial_edge.faces[0]];
+	const int region_b = p_face_regions[initial_edge.faces[1]];
+	real_t run_length = p_vertices[initial_edge.vertices[0]].distance_to(p_vertices[initial_edge.vertices[1]]);
+
+	for (int side = 0; side < 2; side++) {
+		const int previous_vertex = initial_edge.vertices[1 - side];
+		int current_vertex = initial_edge.vertices[side];
+		const Vector3 run_direction = (p_vertices[current_vertex] - p_vertices[previous_vertex]).normalized();
+		uint64_t previous_edge_key = p_edge_key;
+
+		for (uint32_t step = 0; step < p_edges.size(); step++) {
+			uint64_t next_edge_key = 0;
+			int next_vertex = -1;
+			for (uint64_t candidate_key : p_vertex_edges[current_vertex]) {
+				if (candidate_key == previous_edge_key) {
+					continue;
+				}
+				const BevelEdge &candidate = p_edges[candidate_key];
+				if (!candidate.selected || !_has_region_pair(candidate, region_a, region_b, p_face_regions)) {
+					continue;
+				}
+				const int candidate_vertex = candidate.vertices[0] == current_vertex ? candidate.vertices[1] : candidate.vertices[0];
+				const Vector3 candidate_direction = (p_vertices[candidate_vertex] - p_vertices[current_vertex]).normalized();
+				if (candidate_direction.dot(run_direction) > 1.0 - CMP_EPSILON * 10.0) {
+					next_edge_key = candidate_key;
+					next_vertex = candidate_vertex;
+					break;
+				}
+			}
+			if (next_vertex < 0) {
+				break;
+			}
+			run_length += p_vertices[current_vertex].distance_to(p_vertices[next_vertex]);
+			current_vertex = next_vertex;
+			previous_edge_key = next_edge_key;
+		}
+	}
+	return run_length;
+}
+
+static bool _is_closed_manifold(const Vector<CSGBrush::Face> &p_faces, real_t p_merge_epsilon) {
+	HashMap<Vector3i, Vector<int>> vertex_cells;
+	Vector<Vector3> vertices;
 	HashMap<uint64_t, BevelEdgeUse> edge_uses;
-	int next_vertex = 0;
 	for (const CSGBrush::Face &face : p_faces) {
 		int face_vertices[3];
 		for (int corner = 0; corner < 3; corner++) {
-			HashMap<Vector3, int>::ConstIterator found = vertex_map.find(face.vertices[corner]);
-			if (found) {
-				face_vertices[corner] = found->value;
-			} else {
-				face_vertices[corner] = next_vertex++;
-				vertex_map.insert(face.vertices[corner], face_vertices[corner]);
-			}
+			face_vertices[corner] = _weld_vertex(face.vertices[corner], p_merge_epsilon, vertex_cells, vertices);
 		}
 		for (int corner = 0; corner < 3; corner++) {
 			const int from = face_vertices[corner];
@@ -258,7 +331,7 @@ void CSGBevelModifier::_process_brush(CSGBrush *p_brush) const {
 		return;
 	}
 
-	HashMap<Vector3, int> vertex_map;
+	HashMap<Vector3i, Vector<int>> vertex_cells;
 	Vector<Vector3> vertices;
 	Vector<BevelFace> faces;
 	faces.resize(p_brush->faces.size());
@@ -271,15 +344,9 @@ void CSGBevelModifier::_process_brush(CSGBrush *p_brush) const {
 		BevelFace &face_info = faces.write[face_i];
 		face_info.normal = (face.vertices[1] - face.vertices[0]).cross(face.vertices[2] - face.vertices[0]).normalized();
 		for (int corner = 0; corner < 3; corner++) {
-			const Vector3 position = face.vertices[corner];
-			HashMap<Vector3, int>::ConstIterator found = vertex_map.find(position);
-			int vertex;
-			if (found) {
-				vertex = found->value;
-			} else {
-				vertex = vertices.size();
-				vertex_map.insert(position, vertex);
-				vertices.push_back(position);
+			const int previous_vertex_count = vertices.size();
+			const int vertex = _weld_vertex(face.vertices[corner], BEVEL_MERGE_EPSILON, vertex_cells, vertices);
+			if (vertices.size() != previous_vertex_count) {
 				vertex_faces.resize(vertices.size());
 			}
 			face_info.vertices[corner] = vertex;
@@ -315,7 +382,12 @@ void CSGBevelModifier::_process_brush(CSGBrush *p_brush) const {
 		if (edge.faces.size() != 2) {
 			continue;
 		}
-		const real_t normal_dot = CLAMP(faces[edge.faces[0]].normal.dot(faces[edge.faces[1]].normal), -1.0, 1.0);
+		const int face_a = edge.faces[0];
+		const int face_b = edge.faces[1];
+		if (_same_plane(p_brush->faces[face_a], faces[face_a], p_brush->faces[face_b], faces[face_b], BEVEL_MERGE_EPSILON)) {
+			continue;
+		}
+		const real_t normal_dot = CLAMP(faces[face_a].normal.dot(faces[face_b].normal), -1.0, 1.0);
 		edge.selected = normal_dot < normal_dot_limit && normal_dot > -1.0 + CMP_EPSILON;
 		selected_edge_count += edge.selected ? 1 : 0;
 	}
@@ -334,7 +406,7 @@ void CSGBevelModifier::_process_brush(CSGBrush *p_brush) const {
 	}
 	for (const KeyValue<uint64_t, BevelEdge> &entry : edges) {
 		const BevelEdge &edge = entry.value;
-		if (edge.faces.size() == 2 && _same_plane(p_brush->faces[edge.faces[0]], faces[edge.faces[0]], p_brush->faces[edge.faces[1]], faces[edge.faces[1]])) {
+		if (edge.faces.size() == 2 && _same_plane(p_brush->faces[edge.faces[0]], faces[edge.faces[0]], p_brush->faces[edge.faces[1]], faces[edge.faces[1]], BEVEL_MERGE_EPSILON)) {
 			_join_regions(face_regions, edge.faces[0], edge.faces[1]);
 		}
 	}
@@ -343,6 +415,7 @@ void CSGBevelModifier::_process_brush(CSGBrush *p_brush) const {
 	}
 
 	HashMap<uint64_t, Vector3> region_vertex_positions;
+	HashMap<uint64_t, real_t> edge_run_lengths;
 	Vector<BevelPoint> mapped_points;
 	mapped_points.resize(faces.size() * 3);
 	for (int face_i = 0; face_i < faces.size(); face_i++) {
@@ -404,7 +477,12 @@ void CSGBevelModifier::_process_brush(CSGBrush *p_brush) const {
 				if (!duplicate) {
 					constraints.push_back(inward);
 				}
-				local_width = MIN(local_width, vertices[other].distance_to(vertices[vertex]) * 0.49);
+				HashMap<uint64_t, real_t>::ConstIterator cached_run_length = edge_run_lengths.find(edge_key);
+				if (!cached_run_length) {
+					edge_run_lengths.insert(edge_key, _get_edge_run_length(edge_key, edges, vertex_edges, vertices, face_regions));
+					cached_run_length = edge_run_lengths.find(edge_key);
+				}
+				local_width = MIN(local_width, cached_run_length->value * 0.49);
 			}
 
 			Vector3 offset;
@@ -471,59 +549,157 @@ void CSGBevelModifier::_process_brush(CSGBrush *p_brush) const {
 
 	for (int vertex = 0; vertex < vertices.size(); vertex++) {
 		Vector<CapPoint> cap_points;
+		HashMap<int, int> region_to_cap;
 		for (int face_i : vertex_faces[vertex]) {
 			const int corner = _find_corner(faces[face_i], vertex);
 			if (corner < 0) {
 				continue;
 			}
 			const BevelPoint &point = mapped_points[face_i * 3 + corner];
-			if (point.position.is_equal_approx(vertices[vertex])) {
+			if (point.position.distance_squared_to(vertices[vertex]) <= BEVEL_MERGE_EPSILON * BEVEL_MERGE_EPSILON) {
 				continue;
 			}
-			bool duplicate = false;
-			for (const CapPoint &existing : cap_points) {
-				if (existing.point.position.is_equal_approx(point.position)) {
-					duplicate = true;
-					break;
+			const int region = face_regions[face_i];
+			if (!region_to_cap.has(region)) {
+				int cap = -1;
+				for (int i = 0; i < cap_points.size(); i++) {
+					if (cap_points[i].point.position.distance_squared_to(point.position) <= BEVEL_MERGE_EPSILON * BEVEL_MERGE_EPSILON) {
+						cap = i;
+						break;
+					}
 				}
-			}
-			if (!duplicate) {
-				CapPoint cap_point;
-				cap_point.point = point;
-				cap_points.push_back(cap_point);
+				if (cap < 0) {
+					CapPoint cap_point;
+					cap_point.point = point;
+					cap = cap_points.size();
+					cap_points.push_back(cap_point);
+				}
+				region_to_cap.insert(region, cap);
 			}
 		}
-		if (cap_points.size() < 3) {
+		if (cap_points.size() < 2) {
 			continue;
 		}
 
-		Vector3 center;
-		for (const CapPoint &point : cap_points) {
-			center += point.point.position;
+		// The selected bevel edges define the cap boundary topologically. Using
+		// this connectivity avoids relying on a projected angular sort, whose
+		// order can change when a Boolean operation triangulates the same corner
+		// differently after an operand moves.
+		for (uint64_t edge_key : vertex_edges[vertex]) {
+			const BevelEdge &edge = edges[edge_key];
+			if (!edge.selected || edge.faces.size() != 2) {
+				continue;
+			}
+			const int region_a = face_regions[edge.faces[0]];
+			const int region_b = face_regions[edge.faces[1]];
+			HashMap<int, int>::ConstIterator cap_a = region_to_cap.find(region_a);
+			HashMap<int, int>::ConstIterator cap_b = region_to_cap.find(region_b);
+			if (!cap_a || !cap_b || cap_a->value == cap_b->value) {
+				continue;
+			}
+			cap_points.write[cap_a->value].neighbors.push_back(cap_b->value);
+			cap_points.write[cap_b->value].neighbors.push_back(cap_a->value);
 		}
-		center /= cap_points.size();
+
 		Vector3 expected_normal;
+		HashMap<int, bool> normal_regions;
 		for (int face_i : vertex_faces[vertex]) {
-			expected_normal += faces[face_i].normal;
+			const int region = face_regions[face_i];
+			if (!normal_regions.has(region)) {
+				normal_regions.insert(region, true);
+				expected_normal += faces[face_i].normal;
+			}
 		}
 		expected_normal.normalize();
-		Vector3 axis_u = expected_normal.cross(Vector3(0, 1, 0));
-		if (axis_u.length_squared() <= CMP_EPSILON2) {
-			axis_u = expected_normal.cross(Vector3(1, 0, 0));
+
+		// Two points connected twice represent a straight continuation through a
+		// triangulation vertex. Its neighboring bevel quads already meet.
+		if (cap_points.size() == 2 && cap_points[0].neighbors.size() == 2 && cap_points[1].neighbors.size() == 2) {
+			continue;
 		}
-		axis_u.normalize();
-		const Vector3 axis_v = expected_normal.cross(axis_u).normalized();
-		for (CapPoint &point : cap_points) {
-			const Vector3 direction = point.point.position - center;
-			point.angle = Math::atan2(direction.dot(axis_v), direction.dot(axis_u));
+
+		int first_endpoint = -1;
+		int endpoint_count = 0;
+		bool valid_boundary = true;
+		for (int i = 0; i < cap_points.size(); i++) {
+			const int neighbor_count = cap_points[i].neighbors.size();
+			if (neighbor_count == 1) {
+				first_endpoint = i;
+				endpoint_count++;
+			} else if (neighbor_count != 2) {
+				valid_boundary = false;
+				break;
+			}
 		}
-		cap_points.sort_custom<CapPointSort>();
-		for (int i = 1; i < cap_points.size() - 1; i++) {
-			_append_triangle(result_faces, cap_points[0].point, cap_points[i].point, cap_points[i + 1].point, p_brush->faces[vertex_faces[vertex][0]], expected_normal);
+		const bool open_boundary = endpoint_count == 2;
+		if (!valid_boundary || (endpoint_count != 0 && !open_boundary)) {
+			continue;
+		}
+
+		Vector<int> ordered_points;
+		ordered_points.reserve(cap_points.size());
+		int previous = -1;
+		int current = open_boundary ? first_endpoint : 0;
+		const int first = current;
+		while (ordered_points.size() < cap_points.size()) {
+			ordered_points.push_back(current);
+			if (open_boundary && current != first && cap_points[current].neighbors.size() == 1) {
+				break;
+			}
+			const Vector<int> &neighbors = cap_points[current].neighbors;
+			int next = neighbors[0];
+			if (next == previous && neighbors.size() == 2) {
+				next = neighbors[1];
+			}
+			previous = current;
+			current = next;
+			if (!open_boundary && current == first) {
+				break;
+			}
+		}
+		if (ordered_points.size() != cap_points.size() || (!open_boundary && current != first)) {
+			continue;
+		}
+
+		Vector<BevelPoint> boundary_points;
+		boundary_points.reserve(ordered_points.size() + (open_boundary ? 1 : 0));
+		for (int point_index : ordered_points) {
+			boundary_points.push_back(cap_points[point_index].point);
+		}
+		if (open_boundary) {
+			boundary_points.push_back(_interpolate_point(p_brush->faces[vertex_faces[vertex][0]], vertices[vertex]));
+		}
+
+		if (boundary_points.size() == 3) {
+			_append_triangle(result_faces, boundary_points[0], boundary_points[1], boundary_points[2], p_brush->faces[vertex_faces[vertex][0]], expected_normal);
+			continue;
+		}
+
+		BevelPoint center_point;
+		for (const BevelPoint &point : boundary_points) {
+			center_point.position += point.position;
+			center_point.uv += point.uv;
+			center_point.color += point.color;
+			for (int channel = 0; channel < CSGBrush::CUSTOM_CHANNEL_COUNT; channel++) {
+				center_point.customs[channel] += point.customs[channel];
+			}
+		}
+		const real_t point_count = boundary_points.size();
+		center_point.position /= point_count;
+		center_point.uv /= point_count;
+		center_point.color /= point_count;
+		for (int channel = 0; channel < CSGBrush::CUSTOM_CHANNEL_COUNT; channel++) {
+			center_point.customs[channel] /= point_count;
+		}
+
+		for (int i = 0; i < boundary_points.size(); i++) {
+			const BevelPoint &point_a = boundary_points[i];
+			const BevelPoint &point_b = boundary_points[(i + 1) % boundary_points.size()];
+			_append_triangle(result_faces, center_point, point_a, point_b, p_brush->faces[vertex_faces[vertex][0]], expected_normal);
 		}
 	}
 
-	if (!_is_closed_manifold(result_faces)) {
+	if (!_is_closed_manifold(result_faces, BEVEL_MERGE_EPSILON)) {
 		WARN_PRINT("CSGBevelModifier could not create closed manifold geometry; the original brush was preserved.");
 		return;
 	}

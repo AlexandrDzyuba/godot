@@ -9,6 +9,7 @@ def configure(env):
 def get_doc_classes():
     return [
         "CSGBevelModifier",
+        "CSGBevelSettings",
         "CSGBox3D",
         "CSGCombiner3D",
         "CSGCylinder3D",
