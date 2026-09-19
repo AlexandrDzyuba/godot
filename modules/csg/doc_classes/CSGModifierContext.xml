@@ -30,6 +30,48 @@
 			<param index="0" name="channel" type="int" />
 			<description>Returns the storage format used by custom [param channel].</description>
 		</method>
+		<method name="get_brush_ids" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>Returns the source brush ordinal for every face.</description>
+		</method>
+		<method name="get_face_count" qualifiers="const">
+			<return type="int" />
+			<description>Returns the triangle face count.</description>
+		</method>
+		<method name="get_face_custom_metadata" qualifiers="const">
+			<return type="Array" />
+			<description>Returns one custom metadata dictionary per face.</description>
+		</method>
+		<method name="get_face_generation" qualifiers="const">
+			<return type="PackedByteArray" />
+			<description>Returns one [enum CSGGeometryData.FaceGeneration] value per face.</description>
+		</method>
+		<method name="get_face_ids" qualifiers="const">
+			<return type="PackedInt64Array" />
+			<description>Returns stable face IDs.</description>
+		</method>
+		<method name="get_face_semantics" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>Returns semantic names for all faces.</description>
+		</method>
+		<method name="get_geometry_data" qualifiers="const">
+			<return type="CSGGeometryData" />
+			<param index="0" name="merge_epsilon" type="float" default="0.00001" />
+			<param index="1" name="sharp_angle" type="float" default="0.523599" />
+			<description>Builds or returns the cached semantic topology snapshot.</description>
+		</method>
+		<method name="get_material_ids" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>Returns one material ID per face.</description>
+		</method>
+		<method name="get_source_face_ids" qualifiers="const">
+			<return type="PackedInt64Array" />
+			<description>Returns the originating face ID for every face.</description>
+		</method>
+		<method name="get_surface_ids" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>Returns one source surface ID per face.</description>
+		</method>
 		<method name="get_vertex_count" qualifiers="const">
 			<return type="int" />
 			<description>Returns the number of triangle vertices available to this modifier.</description>
@@ -63,6 +105,16 @@
 			<param index="0" name="channel" type="int" />
 			<param index="1" name="format" type="int" enum="Mesh.ArrayCustomFormat" />
 			<description>Sets the storage [param format] used by custom [param channel].</description>
+		</method>
+		<method name="set_face_custom_metadata">
+			<return type="void" />
+			<param index="0" name="metadata" type="Array" />
+			<description>Replaces per-face custom dictionaries. The array size must match [method get_face_count].</description>
+		</method>
+		<method name="set_face_semantics">
+			<return type="void" />
+			<param index="0" name="semantics" type="PackedStringArray" />
+			<description>Replaces semantic names. The array size must match [method get_face_count].</description>
 		</method>
 	</methods>
 </class>

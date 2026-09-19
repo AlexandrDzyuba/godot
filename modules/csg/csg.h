@@ -32,16 +32,35 @@
 
 #include "core/math/aabb.h"
 #include "core/math/color.h"
-#include "scene/resources/mesh.h"
 #include "core/math/transform_3d.h"
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
 #include "core/object/ref_counted.h"
+#include "core/string/string_name.h"
 #include "core/templates/vector.h"
+#include "core/variant/dictionary.h"
 #include "scene/resources/material.h"
+#include "scene/resources/mesh.h"
 
 struct CSGBrush {
 	static constexpr int CUSTOM_CHANNEL_COUNT = 4;
+
+	enum FaceGeneration {
+		FACE_ORIGINAL,
+		FACE_BOOLEAN_GENERATED,
+		FACE_BEVEL_GENERATED,
+		FACE_TOPOLOGY_GENERATED,
+	};
+
+	struct FaceMetadata {
+		uint32_t face_id = 0;
+		uint32_t source_face_id = 0;
+		uint32_t surface_id = 0;
+		uint32_t brush_id = 0;
+		FaceGeneration generation = FACE_ORIGINAL;
+		StringName semantic;
+		Dictionary custom;
+	};
 
 	struct Face {
 		Vector3 vertices[3];
@@ -52,6 +71,7 @@ struct CSGBrush {
 		bool smooth = false;
 		bool invert = false;
 		int material = 0;
+		FaceMetadata metadata;
 	};
 
 	Vector<Face> faces;
@@ -76,6 +96,6 @@ struct CSGBrush {
 	}
 
 	// Create a brush from faces.
-	void build_from_faces(const Vector<Vector3> &p_vertices, const Vector<Vector2> &p_uvs, const Vector<bool> &p_smooth, const Vector<Ref<Material>> &p_materials, const Vector<bool> &p_invert_faces);
+	void build_from_faces(const Vector<Vector3> &p_vertices, const Vector<Vector2> &p_uvs, const Vector<bool> &p_smooth, const Vector<Ref<Material>> &p_materials, const Vector<bool> &p_invert_faces, const Vector<int> &p_surface_ids = Vector<int>());
 	void copy_from(const CSGBrush &p_brush, const Transform3D &p_xform);
 };

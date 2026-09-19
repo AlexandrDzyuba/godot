@@ -8,6 +8,18 @@
 void CSGModifierContext::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_vertices"), &CSGModifierContext::get_vertices);
 	ClassDB::bind_method(D_METHOD("get_vertex_count"), &CSGModifierContext::get_vertex_count);
+	ClassDB::bind_method(D_METHOD("get_face_count"), &CSGModifierContext::get_face_count);
+	ClassDB::bind_method(D_METHOD("get_geometry_data", "merge_epsilon", "sharp_angle"), &CSGModifierContext::get_geometry_data, DEFVAL(0.00001), DEFVAL(Math::deg_to_rad(30.0)));
+	ClassDB::bind_method(D_METHOD("get_face_ids"), &CSGModifierContext::get_face_ids);
+	ClassDB::bind_method(D_METHOD("get_source_face_ids"), &CSGModifierContext::get_source_face_ids);
+	ClassDB::bind_method(D_METHOD("get_surface_ids"), &CSGModifierContext::get_surface_ids);
+	ClassDB::bind_method(D_METHOD("get_material_ids"), &CSGModifierContext::get_material_ids);
+	ClassDB::bind_method(D_METHOD("get_brush_ids"), &CSGModifierContext::get_brush_ids);
+	ClassDB::bind_method(D_METHOD("get_face_generation"), &CSGModifierContext::get_face_generation);
+	ClassDB::bind_method(D_METHOD("get_face_semantics"), &CSGModifierContext::get_face_semantics);
+	ClassDB::bind_method(D_METHOD("set_face_semantics", "semantics"), &CSGModifierContext::set_face_semantics);
+	ClassDB::bind_method(D_METHOD("get_face_custom_metadata"), &CSGModifierContext::get_face_custom_metadata);
+	ClassDB::bind_method(D_METHOD("set_face_custom_metadata", "metadata"), &CSGModifierContext::set_face_custom_metadata);
 
 	ClassDB::bind_method(D_METHOD("has_colors"), &CSGModifierContext::has_colors);
 	ClassDB::bind_method(D_METHOD("get_colors"), &CSGModifierContext::get_colors);
@@ -24,10 +36,21 @@ void CSGModifierContext::_bind_methods() {
 
 void CSGModifierContext::setup(CSGBrush *p_brush) {
 	brush = p_brush;
+	geometry_data.unref();
+	geometry_merge_epsilon = -1.0;
+	geometry_sharp_angle = -1.0;
+}
+
+int CSGModifierContext::get_face_count() const {
+	return brush ? brush->faces.size() : 0;
 }
 
 CSGBrush *CSGModifierContext::get_brush() const {
 	return brush;
+}
+
+void CSGModifierContext::invalidate_geometry_data() {
+	geometry_data.unref();
 }
 
 int CSGModifierContext::get_vertex_count() const {
@@ -49,6 +72,85 @@ PackedVector3Array CSGModifierContext::get_vertices() const {
 		}
 	}
 	return vertices;
+}
+
+Ref<CSGGeometryData> CSGModifierContext::get_geometry_data(real_t p_merge_epsilon, real_t p_sharp_angle) const {
+	ERR_FAIL_NULL_V(brush, Ref<CSGGeometryData>());
+	if (geometry_data.is_null() || !Math::is_equal_approx(geometry_merge_epsilon, p_merge_epsilon) || !Math::is_equal_approx(geometry_sharp_angle, p_sharp_angle)) {
+		geometry_data.instantiate();
+		geometry_data->build(*brush, p_merge_epsilon, p_sharp_angle);
+		geometry_merge_epsilon = p_merge_epsilon;
+		geometry_sharp_angle = p_sharp_angle;
+	}
+	return geometry_data;
+}
+
+PackedInt64Array CSGModifierContext::get_face_ids() const {
+	Ref<CSGGeometryData> data = get_geometry_data();
+	return data.is_valid() ? data->get_face_ids() : PackedInt64Array();
+}
+PackedInt64Array CSGModifierContext::get_source_face_ids() const {
+	Ref<CSGGeometryData> data = get_geometry_data();
+	return data.is_valid() ? data->get_source_face_ids() : PackedInt64Array();
+}
+PackedInt32Array CSGModifierContext::get_surface_ids() const {
+	Ref<CSGGeometryData> data = get_geometry_data();
+	return data.is_valid() ? data->get_surface_ids() : PackedInt32Array();
+}
+PackedInt32Array CSGModifierContext::get_material_ids() const {
+	Ref<CSGGeometryData> data = get_geometry_data();
+	return data.is_valid() ? data->get_material_ids() : PackedInt32Array();
+}
+PackedInt32Array CSGModifierContext::get_brush_ids() const {
+	Ref<CSGGeometryData> data = get_geometry_data();
+	return data.is_valid() ? data->get_brush_ids() : PackedInt32Array();
+}
+PackedByteArray CSGModifierContext::get_face_generation() const {
+	Ref<CSGGeometryData> data = get_geometry_data();
+	return data.is_valid() ? data->get_face_generation() : PackedByteArray();
+}
+
+PackedStringArray CSGModifierContext::get_face_semantics() const {
+	PackedStringArray semantics;
+	if (!brush) {
+		return semantics;
+	}
+	semantics.resize(brush->faces.size());
+	for (int i = 0; i < brush->faces.size(); i++) {
+		semantics.set(i, String(brush->faces[i].metadata.semantic));
+	}
+	return semantics;
+}
+
+void CSGModifierContext::set_face_semantics(const PackedStringArray &p_semantics) {
+	ERR_FAIL_NULL(brush);
+	ERR_FAIL_COND_MSG(p_semantics.size() != brush->faces.size(), "CSG modifier semantic count must match face count.");
+	for (int i = 0; i < brush->faces.size(); i++) {
+		brush->faces.write[i].metadata.semantic = p_semantics[i];
+	}
+	invalidate_geometry_data();
+}
+
+Array CSGModifierContext::get_face_custom_metadata() const {
+	Array face_metadata_array;
+	if (!brush) {
+		return face_metadata_array;
+	}
+	face_metadata_array.resize(brush->faces.size());
+	for (int i = 0; i < brush->faces.size(); i++) {
+		face_metadata_array[i] = brush->faces[i].metadata.custom;
+	}
+	return face_metadata_array;
+}
+
+void CSGModifierContext::set_face_custom_metadata(const Array &p_metadata) {
+	ERR_FAIL_NULL(brush);
+	ERR_FAIL_COND_MSG(p_metadata.size() != brush->faces.size(), "CSG modifier metadata count must match face count.");
+	for (int i = 0; i < brush->faces.size(); i++) {
+		ERR_CONTINUE_MSG(p_metadata[i].get_type() != Variant::DICTIONARY, "Every CSG face metadata entry must be a Dictionary.");
+		brush->faces.write[i].metadata.custom = p_metadata[i];
+	}
+	invalidate_geometry_data();
 }
 
 bool CSGModifierContext::has_colors() const {

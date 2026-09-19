@@ -47,6 +47,7 @@
 class Mesh;
 class NavigationMesh;
 class NavigationMeshSourceGeometryData3D;
+class Texture2D;
 
 class CSGShape3D : public GeometryInstance3D {
 	GDCLASS(CSGShape3D, GeometryInstance3D);
@@ -157,6 +158,7 @@ public:
 	Operation get_operation() const;
 
 	virtual Vector<Vector3> get_brush_faces();
+	Ref<CSGGeometryData> get_geometry_data(real_t p_merge_epsilon = 0.00001, real_t p_sharp_angle = Math::deg_to_rad(30.0));
 
 	virtual AABB get_aabb() const override;
 
@@ -242,7 +244,7 @@ class CSGPrimitive3D : public CSGShape3D {
 
 protected:
 	bool flip_faces;
-	CSGBrush *_create_brush_from_arrays(const Vector<Vector3> &p_vertices, const Vector<Vector2> &p_uv, const Vector<bool> &p_smooth, const Vector<Ref<Material>> &p_materials);
+	CSGBrush *_create_brush_from_arrays(const Vector<Vector3> &p_vertices, const Vector<Vector2> &p_uv, const Vector<bool> &p_smooth, const Vector<Ref<Material>> &p_materials, const Vector<int> &p_surface_ids = Vector<int>());
 	static void _bind_methods();
 
 public:
@@ -328,6 +330,86 @@ public:
 
 	CSGBox3D() {}
 };
+
+class CSGHeightMap3D : public CSGPrimitive3D {
+	GDCLASS(CSGHeightMap3D, CSGPrimitive3D);
+
+public:
+	enum HeightChannel {
+		HEIGHT_CHANNEL_LUMINANCE,
+		HEIGHT_CHANNEL_RED,
+		HEIGHT_CHANNEL_GREEN,
+		HEIGHT_CHANNEL_BLUE,
+		HEIGHT_CHANNEL_ALPHA,
+	};
+	enum GenerationMode {
+		GENERATION_CELL_GRID,
+		GENERATION_CONTOUR_LAYERS,
+	};
+
+private:
+	enum SurfaceType {
+		SURFACE_TOP,
+		SURFACE_CLIFF,
+		SURFACE_BORDER,
+		SURFACE_BOTTOM,
+	};
+
+	virtual CSGBrush *_build_brush() override;
+	CSGBrush *_build_cell_grid_brush();
+	CSGBrush *_build_contour_layers_brush();
+	Rect2i _get_effective_region(int p_image_width, int p_image_height) const;
+
+	Ref<Texture2D> height_map;
+	bool region_enabled = false;
+	Rect2i region_rect;
+	Vector3 size = Vector3(10, 2, 10);
+	HeightChannel height_channel = HEIGHT_CHANNEL_LUMINANCE;
+	GenerationMode generation_mode = GENERATION_CONTOUR_LAYERS;
+	int height_steps = 16;
+	int sampling_step = 1;
+	bool invert_height = false;
+	real_t base_thickness = 0.01;
+	Ref<Material> material;
+	Ref<Material> side_material;
+	Ref<Material> bottom_material;
+
+	void _height_map_changed();
+
+protected:
+	static void _bind_methods();
+
+public:
+	void set_height_map(const Ref<Texture2D> &p_height_map);
+	Ref<Texture2D> get_height_map() const;
+	void set_region_enabled(bool p_enabled);
+	bool is_region_enabled() const;
+	void set_region_rect(const Rect2i &p_region);
+	Rect2i get_region_rect() const;
+	void set_size(const Vector3 &p_size);
+	Vector3 get_size() const;
+	void set_height_channel(HeightChannel p_channel);
+	HeightChannel get_height_channel() const;
+	void set_generation_mode(GenerationMode p_mode);
+	GenerationMode get_generation_mode() const;
+	void set_height_steps(int p_steps);
+	int get_height_steps() const;
+	void set_sampling_step(int p_step);
+	int get_sampling_step() const;
+	void set_invert_height(bool p_invert);
+	bool is_height_inverted() const;
+	void set_base_thickness(real_t p_thickness);
+	real_t get_base_thickness() const;
+	void set_material(const Ref<Material> &p_material);
+	Ref<Material> get_material() const;
+	void set_side_material(const Ref<Material> &p_material);
+	Ref<Material> get_side_material() const;
+	void set_bottom_material(const Ref<Material> &p_material);
+	Ref<Material> get_bottom_material() const;
+};
+
+VARIANT_ENUM_CAST(CSGHeightMap3D::HeightChannel)
+VARIANT_ENUM_CAST(CSGHeightMap3D::GenerationMode)
 
 class CSGCylinder3D : public CSGPrimitive3D {
 	GDCLASS(CSGCylinder3D, CSGPrimitive3D);

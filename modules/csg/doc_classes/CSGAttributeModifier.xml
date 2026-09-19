@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CSGAttributeModifier" inherits="CSGModifier" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Writes CSG semantic data into vertex color and custom mesh channels.
+	</brief_description>
+	<description>
+		A native, single-pass CSG modifier. Vertex color and each of CUSTOM0 through CUSTOM3 can be enabled independently and configured with a [CSGModifierChannelOverride]. Values can come from stable face/source IDs, brush, surface or material IDs, generated-face tags, real mesh edge distances, or topology edge flags. An edge is treated as real when it is a mesh boundary or its face angle reaches [member topology_sharp_angle]; coplanar triangulation edges are ignored.
+	</description>
+	<methods>
+		<method name="get_channel_source" qualifiers="const">
+			<return type="int" enum="CSGModifierValue.Source" />
+			<param index="0" name="slot" type="int" />
+			<description>Returns a component source by flat slot (vertex color first, then CUSTOM0 through CUSTOM3).</description>
+		</method>
+		<method name="get_custom_override" qualifiers="const">
+			<return type="CSGModifierChannelOverride" />
+			<param index="0" name="channel" type="int" />
+			<description>Returns the override for CUSTOM[param channel].</description>
+		</method>
+		<method name="get_vertex_color_override" qualifiers="const">
+			<return type="CSGModifierChannelOverride" />
+			<description>Returns the vertex color override.</description>
+		</method>
+		<method name="is_custom_override_enabled" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="channel" type="int" />
+			<description>Returns whether CUSTOM[param channel] is overwritten.</description>
+		</method>
+		<method name="set_custom_override">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="override" type="CSGModifierChannelOverride" />
+			<description>Sets the override for CUSTOM[param channel].</description>
+		</method>
+		<method name="set_custom_override_enabled">
+			<return type="void" />
+			<param index="0" name="channel" type="int" />
+			<param index="1" name="enabled" type="bool" />
+			<description>Enables or disables overwriting CUSTOM[param channel].</description>
+		</method>
+		<method name="set_channel_source">
+			<return type="void" />
+			<param index="0" name="slot" type="int" />
+			<param index="1" name="source" type="int" enum="CSGModifierValue.Source" />
+			<description>Sets a component source by flat slot.</description>
+		</method>
+	</methods>
+	<members>
+		<member name="vertex_color_red_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">Vertex color R source.</member>
+		<member name="vertex_color_green_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">Vertex color G source.</member>
+		<member name="vertex_color_blue_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">Vertex color B source.</member>
+		<member name="vertex_color_alpha_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">Vertex color A source.</member>
+		<member name="custom0_override" type="CSGModifierChannelOverride" setter="set_custom_override" getter="get_custom_override">CUSTOM0 configuration.</member>
+		<member name="custom0_override_enabled" type="bool" setter="set_custom_override_enabled" getter="is_custom_override_enabled" default="false">Enables CUSTOM0 overwrite.</member>
+		<member name="custom0_red_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM0 R source.</member>
+		<member name="custom0_green_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM0 G source.</member>
+		<member name="custom0_blue_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM0 B source.</member>
+		<member name="custom0_alpha_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM0 A source.</member>
+		<member name="custom1_override" type="CSGModifierChannelOverride" setter="set_custom_override" getter="get_custom_override">CUSTOM1 configuration.</member>
+		<member name="custom1_override_enabled" type="bool" setter="set_custom_override_enabled" getter="is_custom_override_enabled" default="false">Enables CUSTOM1 overwrite.</member>
+		<member name="custom1_red_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM1 R source.</member>
+		<member name="custom1_green_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM1 G source.</member>
+		<member name="custom1_blue_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM1 B source.</member>
+		<member name="custom1_alpha_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM1 A source.</member>
+		<member name="custom2_override" type="CSGModifierChannelOverride" setter="set_custom_override" getter="get_custom_override">CUSTOM2 configuration.</member>
+		<member name="custom2_override_enabled" type="bool" setter="set_custom_override_enabled" getter="is_custom_override_enabled" default="false">Enables CUSTOM2 overwrite.</member>
+		<member name="custom2_red_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM2 R source.</member>
+		<member name="custom2_green_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM2 G source.</member>
+		<member name="custom2_blue_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM2 B source.</member>
+		<member name="custom2_alpha_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM2 A source.</member>
+		<member name="custom3_override" type="CSGModifierChannelOverride" setter="set_custom_override" getter="get_custom_override">CUSTOM3 configuration.</member>
+		<member name="custom3_override_enabled" type="bool" setter="set_custom_override_enabled" getter="is_custom_override_enabled" default="false">Enables CUSTOM3 overwrite.</member>
+		<member name="custom3_red_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM3 R source.</member>
+		<member name="custom3_green_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM3 G source.</member>
+		<member name="custom3_blue_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM3 B source.</member>
+		<member name="custom3_alpha_source" type="int" setter="set_channel_source" getter="get_channel_source" enum="CSGModifierValue.Source" default="0">CUSTOM3 A source.</member>
+		<member name="topology_merge_epsilon" type="float" setter="set_merge_epsilon" getter="get_merge_epsilon" default="0.00001">Position tolerance used to weld topology vertices.</member>
+		<member name="topology_sharp_angle" type="float" setter="set_sharp_angle" getter="get_sharp_angle" default="0.523599">Minimum angle used to classify a sharp edge.</member>
+		<member name="vertex_color_override" type="CSGModifierChannelOverride" setter="set_vertex_color_override" getter="get_vertex_color_override">Vertex color channel configuration.</member>
+		<member name="vertex_color_override_enabled" type="bool" setter="set_vertex_color_override_enabled" getter="is_vertex_color_override_enabled" default="false">If [code]true[/code], overwrites vertex colors.</member>
+	</members>
+</class>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CSGFaceSemanticModifier" inherits="CSGModifier" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>Assigns semantic names to CSG faces by their origin.</brief_description>
+	<description>Assigns different semantic names to original, Boolean-generated, bevel-generated, and topology-generated faces. This supports mappings such as STONE_WALL to original faces, STONE_EDGE to bevel faces, and BROKEN_STONE to newly exposed Boolean faces.</description>
+	<members>
+		<member name="bevel_semantic" type="StringName" setter="set_bevel_semantic" getter="get_bevel_semantic">Semantic assigned to bevel faces.</member>
+		<member name="boolean_semantic" type="StringName" setter="set_boolean_semantic" getter="get_boolean_semantic">Semantic assigned to newly exposed subtraction faces.</member>
+		<member name="original_semantic" type="StringName" setter="set_original_semantic" getter="get_original_semantic">Semantic assigned to original faces.</member>
+		<member name="preserve_non_empty" type="bool" setter="set_preserve_non_empty" getter="is_preserving_non_empty" default="true">Preserves semantics assigned by an earlier modifier.</member>
+		<member name="topology_semantic" type="StringName" setter="set_topology_semantic" getter="get_topology_semantic">Semantic assigned to topology-generated faces.</member>
+	</members>
+</class>

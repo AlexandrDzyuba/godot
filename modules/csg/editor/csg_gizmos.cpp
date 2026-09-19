@@ -200,6 +200,9 @@ String CSGShape3DGizmoPlugin::get_handle_name(const EditorNode3DGizmo *p_gizmo, 
 	if (Object::cast_to<CSGBox3D>(cs)) {
 		return helper->box_get_handle_name(p_id);
 	}
+	if (Object::cast_to<CSGHeightMap3D>(cs)) {
+		return helper->box_get_handle_name(p_id);
+	}
 
 	if (Object::cast_to<CSGCylinder3D>(cs)) {
 		return p_id == 0 ? "Radius" : "Height";
@@ -222,6 +225,10 @@ Variant CSGShape3DGizmoPlugin::get_handle_value(const EditorNode3DGizmo *p_gizmo
 
 	if (Object::cast_to<CSGBox3D>(cs)) {
 		CSGBox3D *s = Object::cast_to<CSGBox3D>(cs);
+		return s->get_size();
+	}
+	if (Object::cast_to<CSGHeightMap3D>(cs)) {
+		CSGHeightMap3D *s = Object::cast_to<CSGHeightMap3D>(cs);
 		return s->get_size();
 	}
 
@@ -267,6 +274,14 @@ void CSGShape3DGizmoPlugin::set_handle(const EditorNode3DGizmo *p_gizmo, int p_i
 
 	if (Object::cast_to<CSGBox3D>(cs)) {
 		CSGBox3D *s = Object::cast_to<CSGBox3D>(cs);
+		Vector3 size = s->get_size();
+		Vector3 position;
+		helper->box_set_handle(sg, p_id, size, position);
+		s->set_size(size);
+		s->set_global_position(position);
+	}
+	if (Object::cast_to<CSGHeightMap3D>(cs)) {
+		CSGHeightMap3D *s = Object::cast_to<CSGHeightMap3D>(cs);
 		Vector3 size = s->get_size();
 		Vector3 position;
 		helper->box_set_handle(sg, p_id, size, position);
@@ -330,6 +345,9 @@ void CSGShape3DGizmoPlugin::commit_handle(const EditorNode3DGizmo *p_gizmo, int 
 	if (Object::cast_to<CSGBox3D>(cs)) {
 		helper->box_commit_handle(TTR("Change CSG Box Size"), p_cancel, cs);
 	}
+	if (Object::cast_to<CSGHeightMap3D>(cs)) {
+		helper->box_commit_handle(TTR("Change CSG Height Map Size"), p_cancel, cs);
+	}
 
 	if (Object::cast_to<CSGCylinder3D>(cs)) {
 		helper->cylinder_commit_handle(p_id, TTR("Change CSG Cylinder Radius"), TTR("Change CSG Cylinder Height"), p_cancel, cs);
@@ -362,7 +380,7 @@ void CSGShape3DGizmoPlugin::commit_handle(const EditorNode3DGizmo *p_gizmo, int 
 }
 
 bool CSGShape3DGizmoPlugin::has_gizmo(Node3D *p_spatial) {
-	return Object::cast_to<CSGSphere3D>(p_spatial) || Object::cast_to<CSGBox3D>(p_spatial) || Object::cast_to<CSGCylinder3D>(p_spatial) || Object::cast_to<CSGTorus3D>(p_spatial) || Object::cast_to<CSGMesh3D>(p_spatial) || Object::cast_to<CSGPolygon3D>(p_spatial);
+	return Object::cast_to<CSGSphere3D>(p_spatial) || Object::cast_to<CSGBox3D>(p_spatial) || Object::cast_to<CSGHeightMap3D>(p_spatial) || Object::cast_to<CSGCylinder3D>(p_spatial) || Object::cast_to<CSGTorus3D>(p_spatial) || Object::cast_to<CSGMesh3D>(p_spatial) || Object::cast_to<CSGPolygon3D>(p_spatial);
 }
 
 String CSGShape3DGizmoPlugin::get_gizmo_name() const {
@@ -467,6 +485,11 @@ void CSGShape3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
 
 	if (Object::cast_to<CSGBox3D>(cs)) {
 		CSGBox3D *s = Object::cast_to<CSGBox3D>(cs);
+		Vector<Vector3> handles = helper->box_get_handles(s->get_size());
+		p_gizmo->add_handles(handles, handles_material);
+	}
+	if (Object::cast_to<CSGHeightMap3D>(cs)) {
+		CSGHeightMap3D *s = Object::cast_to<CSGHeightMap3D>(cs);
 		Vector<Vector3> handles = helper->box_get_handles(s->get_size());
 		p_gizmo->add_handles(handles, handles_material);
 	}

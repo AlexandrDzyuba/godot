@@ -30,7 +30,9 @@
 
 #include "register_types.h"
 
+#include "csg_attribute_modifier.h"
 #include "csg_bevel_settings.h"
+#include "csg_geometry_data.h"
 #include "csg_modifier.h"
 #include "csg_shape.h"
 #include "csg_topology_settings.h"
@@ -43,8 +45,13 @@
 
 void initialize_csg_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+		GDREGISTER_CLASS(CSGGeometryData);
 		GDREGISTER_CLASS(CSGModifierContext);
 		GDREGISTER_CLASS(CSGModifier);
+		GDREGISTER_CLASS(CSGModifierValue);
+		GDREGISTER_CLASS(CSGModifierChannelOverride);
+		GDREGISTER_CLASS(CSGAttributeModifier);
+		GDREGISTER_CLASS(CSGFaceSemanticModifier);
 		GDREGISTER_CLASS(CSGBevelSettings);
 		GDREGISTER_CLASS(CSGTopologySettings);
 		GDREGISTER_ABSTRACT_CLASS(CSGShape3D);
@@ -52,6 +59,7 @@ void initialize_csg_module(ModuleInitializationLevel p_level) {
 		GDREGISTER_CLASS(CSGMesh3D);
 		GDREGISTER_CLASS(CSGSphere3D);
 		GDREGISTER_CLASS(CSGBox3D);
+		GDREGISTER_CLASS(CSGHeightMap3D);
 		GDREGISTER_CLASS(CSGCylinder3D);
 		GDREGISTER_CLASS(CSGTorus3D);
 		GDREGISTER_CLASS(CSGPolygon3D);

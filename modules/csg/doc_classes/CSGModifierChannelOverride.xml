@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CSGModifierChannelOverride" inherits="Resource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>Four-component CSG mesh channel override.</brief_description>
+	<description>Configures the R, G, B, and A components of vertex color or a CUSTOM channel. [member constant_color] is a convenience view of the four constant values.</description>
+	<members>
+		<member name="alpha" type="CSGModifierValue" setter="set_alpha" getter="get_alpha">Alpha component source.</member>
+		<member name="blue" type="CSGModifierValue" setter="set_blue" getter="get_blue">Blue component source.</member>
+		<member name="constant_color" type="Color" setter="set_constant_color" getter="get_constant_color" default="Color(0, 0, 0, 1)">Convenience color for constant components.</member>
+		<member name="custom_format" type="int" setter="set_custom_format" getter="get_custom_format" enum="Mesh.ArrayCustomFormat" default="7">Storage format used for a CUSTOM channel.</member>
+		<member name="green" type="CSGModifierValue" setter="set_green" getter="get_green">Green component source.</member>
+		<member name="red" type="CSGModifierValue" setter="set_red" getter="get_red">Red component source.</member>
+	</members>
+</class>

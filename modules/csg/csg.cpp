@@ -32,7 +32,7 @@
 
 // CSGBrush
 
-void CSGBrush::build_from_faces(const Vector<Vector3> &p_vertices, const Vector<Vector2> &p_uvs, const Vector<bool> &p_smooth, const Vector<Ref<Material>> &p_materials, const Vector<bool> &p_flip_faces) {
+void CSGBrush::build_from_faces(const Vector<Vector3> &p_vertices, const Vector<Vector2> &p_uvs, const Vector<bool> &p_smooth, const Vector<Ref<Material>> &p_materials, const Vector<bool> &p_flip_faces, const Vector<int> &p_surface_ids) {
 	faces.clear();
 
 	int vc = p_vertices.size();
@@ -48,6 +48,8 @@ void CSGBrush::build_from_faces(const Vector<Vector3> &p_vertices, const Vector<
 	const Ref<Material> *rm = p_materials.ptr();
 	int ic = p_flip_faces.size();
 	const bool *ri = p_flip_faces.ptr();
+	const int surface_count = p_surface_ids.size();
+	const int *surface_ids = p_surface_ids.ptr();
 
 	HashMap<Ref<Material>, int> material_map;
 
@@ -55,6 +57,8 @@ void CSGBrush::build_from_faces(const Vector<Vector3> &p_vertices, const Vector<
 
 	for (int i = 0; i < faces.size(); i++) {
 		Face &f = faces.write[i];
+		f.metadata.face_id = i;
+		f.metadata.source_face_id = i;
 		f.vertices[0] = rv[i * 3 + 0];
 		f.vertices[1] = rv[i * 3 + 1];
 		f.vertices[2] = rv[i * 3 + 2];
@@ -93,6 +97,7 @@ void CSGBrush::build_from_faces(const Vector<Vector3> &p_vertices, const Vector<
 				f.material = -1;
 			}
 		}
+		f.metadata.surface_id = surface_count == faces.size() ? surface_ids[i] : MAX(f.material, 0);
 	}
 
 	materials.resize(material_map.size());
