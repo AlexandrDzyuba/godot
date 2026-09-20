@@ -173,6 +173,40 @@ TEST_CASE("[SceneTree][CSG] CSGHeightMap3D samples a texture region") {
 	memdelete(height_map);
 }
 
+TEST_CASE("[SceneTree][CSG] Native bevel processes complex CSGHeightMap3D contours") {
+	Ref<Image> image = memnew(Image(8, 8, false, Image::FORMAT_RGBA8));
+	for (int z = 0; z < image->get_height(); z++) {
+		for (int x = 0; x < image->get_width(); x++) {
+			const float height = float((x * 3 + z * 5 + (x ^ z)) % 4) / 3.0f;
+			image->set_pixel(x, z, Color(height, height, height, 1));
+		}
+	}
+	Ref<ImageTexture> texture = ImageTexture::create_from_image(image);
+
+	CSGHeightMap3D *height_map = memnew(CSGHeightMap3D);
+	height_map->set_height_map(texture);
+	height_map->set_size(Vector3(8, 2, 8));
+	height_map->set_height_steps(4);
+	SceneTree::get_singleton()->get_root()->add_child(height_map);
+
+	const Vector<Vector3> original_faces = height_map->get_brush_faces();
+	REQUIRE_FALSE(original_faces.is_empty());
+	Ref<CSGBevelSettings> bevel_settings;
+	bevel_settings.instantiate();
+	bevel_settings->set_width(0.05);
+	bevel_settings->set_angle_threshold(0.0);
+	height_map->set_bevel_settings(bevel_settings);
+
+	const Vector<Vector3> beveled_faces = height_map->get_brush_faces();
+	CHECK(beveled_faces.size() > original_faces.size());
+	for (const Vector3 &vertex : beveled_faces) {
+		CHECK(vertex.is_finite());
+	}
+
+	SceneTree::get_singleton()->get_root()->remove_child(height_map);
+	memdelete(height_map);
+}
+
 TEST_CASE("[CSG] Semantic geometry data and native attribute modifier") {
 	Vector<Vector3> vertices;
 	vertices.push_back(Vector3(0, 0, 0));

@@ -34,6 +34,9 @@
 #include "core/templates/hash_map.h"
 #include "core/templates/hash_set.h"
 
+#include <cmath>
+#include <limits>
+
 namespace {
 
 struct NativeFace {
@@ -329,30 +332,56 @@ static int _find_corner(const NativeFace &p_face, int p_vertex) {
 
 static NativePoint _make_point(const manifold::MeshGL64 &p_mesh, const NativeFace &p_face, const Vector<Vector3> &p_vertices, const Vector3 &p_position) {
 	NativePoint point;
-	point.position = p_position;
 	const int property_count = p_mesh.numProp - 3;
 	point.properties.resize(property_count);
 
 	const Vector3 v0 = p_vertices[p_face.vertices[1]] - p_vertices[p_face.vertices[0]];
 	const Vector3 v1 = p_vertices[p_face.vertices[2]] - p_vertices[p_face.vertices[0]];
-	const Vector3 v2 = p_position - p_vertices[p_face.vertices[0]];
-	const real_t d00 = v0.dot(v0);
-	const real_t d01 = v0.dot(v1);
-	const real_t d11 = v1.dot(v1);
-	const real_t d20 = v2.dot(v0);
-	const real_t d21 = v2.dot(v1);
-	const real_t denominator = d00 * d11 - d01 * d01;
+	int nearest_corner = 0;
+	real_t nearest_distance_squared = p_vertices[p_face.vertices[0]].distance_squared_to(p_position);
+	for (int corner = 1; corner < 3; corner++) {
+		const real_t distance_squared = p_vertices[p_face.vertices[corner]].distance_squared_to(p_position);
+		if (distance_squared < nearest_distance_squared) {
+			nearest_distance_squared = distance_squared;
+			nearest_corner = corner;
+		}
+	}
+	point.position = p_position.is_finite() ? p_position : p_vertices[p_face.vertices[nearest_corner]];
+
+	const Vector3 v2 = point.position - p_vertices[p_face.vertices[0]];
+	auto dot_double = [](const Vector3 &p_a, const Vector3 &p_b) {
+		return double(p_a.x) * double(p_b.x) + double(p_a.y) * double(p_b.y) + double(p_a.z) * double(p_b.z);
+	};
+	const double d00 = dot_double(v0, v0);
+	const double d01 = dot_double(v0, v1);
+	const double d11 = dot_double(v1, v1);
+	const double d20 = dot_double(v2, v0);
+	const double d21 = dot_double(v2, v1);
+	const double denominator = d00 * d11 - d01 * d01;
+	const double denominator_scale = MAX(MAX(Math::abs(d00 * d11), Math::abs(d01 * d01)), std::numeric_limits<double>::min());
 	double weights[3] = { 1.0, 0.0, 0.0 };
-	if (!Math::is_zero_approx(denominator)) {
+	const bool stable_denominator = Math::abs(denominator) > denominator_scale * std::numeric_limits<double>::epsilon() * 64.0;
+	if (stable_denominator) {
 		weights[1] = (d11 * d20 - d01 * d21) / denominator;
 		weights[2] = (d00 * d21 - d01 * d20) / denominator;
 		weights[0] = 1.0 - weights[1] - weights[2];
+	}
+	const bool stable_weights = stable_denominator && std::isfinite(weights[0]) && std::isfinite(weights[1]) && std::isfinite(weights[2]) &&
+			MAX(MAX(Math::abs(weights[0]), Math::abs(weights[1])), Math::abs(weights[2])) < 1000000.0;
+	if (!stable_weights) {
+		weights[0] = nearest_corner == 0 ? 1.0 : 0.0;
+		weights[1] = nearest_corner == 1 ? 1.0 : 0.0;
+		weights[2] = nearest_corner == 2 ? 1.0 : 0.0;
 	}
 	for (int property = 0; property < property_count; property++) {
 		double value = 0.0;
 		for (int corner = 0; corner < 3; corner++) {
 			const size_t offset = p_face.property_vertices[corner] * p_mesh.numProp + 3 + property;
 			value += p_mesh.vertProperties[offset] * weights[corner];
+		}
+		if (!std::isfinite(value)) {
+			const size_t fallback_offset = p_face.property_vertices[nearest_corner] * p_mesh.numProp + 3 + property;
+			value = p_mesh.vertProperties[fallback_offset];
 		}
 		point.properties.write[property] = value;
 	}
@@ -698,19 +727,10 @@ bool csg_build_native_bevel(const manifold::Manifold &p_source, const Ref<CSGBev
 			}
 			const int region = face_regions[face_i];
 			if (!region_to_cap.has(region)) {
-				int cap = -1;
-				for (int i = 0; i < cap_points.size(); i++) {
-					if (cap_points[i].point.position.is_equal_approx(point.position)) {
-						cap = i;
-						break;
-					}
-				}
-				if (cap < 0) {
-					NativeCapPoint cap_point;
-					cap_point.point = point;
-					cap = cap_points.size();
-					cap_points.push_back(cap_point);
-				}
+				NativeCapPoint cap_point;
+				cap_point.point = point;
+				const int cap = cap_points.size();
+				cap_points.push_back(cap_point);
 				region_to_cap.insert(region, cap);
 			}
 		}
@@ -798,11 +818,24 @@ bool csg_build_native_bevel(const manifold::Manifold &p_source, const Ref<CSGBev
 		Vector<NativePoint> boundary_points;
 		boundary_points.reserve(ordered_points.size() + (open_boundary ? 1 : 0));
 		for (int point_index : ordered_points) {
-			boundary_points.push_back(cap_points[point_index].point);
+			const NativePoint &point = cap_points[point_index].point;
+			if (boundary_points.is_empty() || !boundary_points[boundary_points.size() - 1].position.is_equal_approx(point.position)) {
+				boundary_points.push_back(point);
+			}
 		}
 		if (open_boundary) {
 			open_cap_count++;
-			boundary_points.push_back(_make_point(mesh, faces[vertex_faces[vertex][0]], vertices, vertices[vertex]));
+			const NativePoint original_point = _make_point(mesh, faces[vertex_faces[vertex][0]], vertices, vertices[vertex]);
+			if (boundary_points.is_empty() || !boundary_points[boundary_points.size() - 1].position.is_equal_approx(original_point.position)) {
+				boundary_points.push_back(original_point);
+			}
+		}
+		if (boundary_points.size() > 1 && boundary_points[0].position.is_equal_approx(boundary_points[boundary_points.size() - 1].position)) {
+			boundary_points.resize(boundary_points.size() - 1);
+		}
+		if (boundary_points.size() < 3) {
+			straight_cap_count++;
+			continue;
 		}
 		completed_cap_count++;
 
@@ -826,6 +859,22 @@ bool csg_build_native_bevel(const manifold::Manifold &p_source, const Ref<CSGBev
 		print_line(vformat("[CSGBevel] orientation repair: components=%d flipped_triangles=%d flipped_source_triangles=%d conflicts=%d valid=%s", orientation_component_count, flipped_triangle_count, flipped_source_triangle_count, orientation_conflict_count, orientation_valid));
 	}
 	if (!orientation_valid) {
+		return false;
+	}
+	int non_finite_position_count = 0;
+	int non_finite_property_count = 0;
+	for (const NativeTriangle &triangle : triangles) {
+		for (const NativePoint &point : triangle.points) {
+			non_finite_position_count += point.position.is_finite() ? 0 : 1;
+			for (double property : point.properties) {
+				non_finite_property_count += std::isfinite(property) ? 0 : 1;
+			}
+		}
+	}
+	if (non_finite_position_count != 0 || non_finite_property_count != 0) {
+		if (debug_print) {
+			print_line(vformat("[CSGBevel] rejected before Manifold construction: non_finite_positions=%d non_finite_properties=%d", non_finite_position_count, non_finite_property_count));
+		}
 		return false;
 	}
 
