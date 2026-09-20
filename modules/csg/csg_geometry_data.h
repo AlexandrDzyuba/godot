@@ -33,6 +33,7 @@ private:
 	PackedInt32Array surface_ids;
 	PackedInt32Array material_ids;
 	PackedInt32Array brush_ids;
+	PackedInt32Array layer_ids;
 	PackedByteArray face_generation;
 	PackedStringArray face_semantics;
 	Array face_custom_metadata;
@@ -65,6 +66,7 @@ public:
 	PackedInt32Array get_surface_ids() const;
 	PackedInt32Array get_material_ids() const;
 	PackedInt32Array get_brush_ids() const;
+	PackedInt32Array get_layer_ids() const;
 	PackedByteArray get_face_generation() const;
 	PackedStringArray get_face_semantics() const;
 	Array get_face_custom_metadata() const;

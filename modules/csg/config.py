@@ -16,6 +16,7 @@ def get_doc_classes():
         "CSGFaceSemanticModifier",
         "CSGGeometryData",
         "CSGHeightMap3D",
+        "CSGHeightMapLayer",
         "CSGMesh3D",
         "CSGModifier",
         "CSGModifierChannelOverride",

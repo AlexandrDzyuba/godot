@@ -6,6 +6,8 @@
 	<description>
 		Generates one closed CSG solid from [member height_map]. [constant GENERATION_CONTOUR_LAYERS] builds cumulative height contours, extrudes vertical slabs between adjacent quantized levels with a tiny robust Boolean overlap at their joins, and performs one batched union instead of generating geometry per pixel. [constant GENERATION_CELL_GRID] is retained as a detailed fallback and comparison mode.
 		The resulting geometry participates in the regular CSG Boolean, bevel, topology, and modifier pipeline. Faces are tagged with [code]HEIGHTMAP_TOP[/code], [code]HEIGHTMAP_CLIFF[/code], [code]HEIGHTMAP_BORDER[/code], or [code]HEIGHTMAP_BOTTOM[/code] semantics. Surface IDs 0 through 3 represent the same categories.
+		In contour mode, [member slope_width] shifts the upper boundary of each height step toward the solid. This creates inexpensive sloped cliffs without running the general-purpose bevel operation.
+		Use [member layer_settings] to give individual quantized layers different relative heights and slope widths. Array index 0 is layer 0, index 1 is layer 1, and so on. Layer IDs are retained as face metadata through Boolean operations and can be written to a shader custom channel with [constant CSGModifierValue.SOURCE_LAYER_ID].
 		Enable [member region_enabled] and set [member region_rect] to generate only a pixel region of a large source texture. This allows multiple nodes to share one height map while each builds a small chunk.
 		[b]Note:[/b] Large regions can still produce many top triangles. Increase [member sampling_step] or use [member height_steps] to reduce detail while editing.
 	</description>
@@ -34,6 +36,9 @@
 		<member name="invert_height" type="bool" setter="set_invert_height" getter="is_height_inverted" default="false">
 			If [code]true[/code], uses one minus the sampled height.
 		</member>
+		<member name="layer_settings" type="Array[CSGHeightMapLayer]" setter="set_layer_settings" getter="get_layer_settings" default="[]">
+			Optional per-layer overrides. The array index is the stable layer ID. Missing or empty entries use a height weight of 1 and inherit [member slope_width]. Per-layer height weights apply when [member height_steps] is greater than 1.
+		</member>
 		<member name="material" type="Material" setter="set_material" getter="get_material">
 			Material used by top cells and as the fallback for other faces.
 		</member>
@@ -48,6 +53,9 @@
 		</member>
 		<member name="side_material" type="Material" setter="set_side_material" getter="get_side_material">
 			Material used by height cliffs and outer border walls. Falls back to [member material].
+		</member>
+		<member name="slope_width" type="float" setter="set_slope_width" getter="get_slope_width" default="0.0">
+			Horizontal inset applied to the upper contour of each height step in [constant GENERATION_CONTOUR_LAYERS]. Outer contours move inward and hole contours move toward the surrounding solid. Chunk-border vertices remain fixed to avoid cracks between adjacent regions. If the requested inset would collapse or split a contour, the largest valid width is selected automatically. This property has no effect in [constant GENERATION_CELL_GRID].
 		</member>
 		<member name="size" type="Vector3" setter="set_size" getter="get_size" default="Vector3(10, 2, 10)">
 			Width, maximum height range, and depth of the generated solid.

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  csg_height_map_layer.cpp                                              */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,57 +28,43 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
-
-#include "csg_attribute_modifier.h"
-#include "csg_bevel_settings.h"
-#include "csg_geometry_data.h"
 #include "csg_height_map_layer.h"
-#include "csg_modifier.h"
-#include "csg_shape.h"
-#include "csg_topology_settings.h"
 
+#include "core/math/math_funcs.h"
 #include "core/object/class_db.h"
 
-#ifdef TOOLS_ENABLED
-#include "editor/csg_gizmos.h"
-#endif
+void CSGHeightMapLayer::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_height_weight", "weight"), &CSGHeightMapLayer::set_height_weight);
+	ClassDB::bind_method(D_METHOD("get_height_weight"), &CSGHeightMapLayer::get_height_weight);
+	ClassDB::bind_method(D_METHOD("set_slope_width", "width"), &CSGHeightMapLayer::set_slope_width);
+	ClassDB::bind_method(D_METHOD("get_slope_width"), &CSGHeightMapLayer::get_slope_width);
 
-void initialize_csg_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		GDREGISTER_CLASS(CSGGeometryData);
-		GDREGISTER_CLASS(CSGHeightMapLayer);
-		GDREGISTER_CLASS(CSGModifierContext);
-		GDREGISTER_CLASS(CSGModifier);
-		GDREGISTER_CLASS(CSGModifierValue);
-		GDREGISTER_CLASS(CSGModifierChannelOverride);
-		GDREGISTER_CLASS(CSGAttributeModifier);
-		GDREGISTER_CLASS(CSGFaceSemanticModifier);
-		GDREGISTER_CLASS(CSGBevelSettings);
-		GDREGISTER_CLASS(CSGTopologySettings);
-		GDREGISTER_ABSTRACT_CLASS(CSGShape3D);
-		GDREGISTER_ABSTRACT_CLASS(CSGPrimitive3D);
-		GDREGISTER_CLASS(CSGMesh3D);
-		GDREGISTER_CLASS(CSGSphere3D);
-		GDREGISTER_CLASS(CSGBox3D);
-		GDREGISTER_CLASS(CSGHeightMap3D);
-		GDREGISTER_CLASS(CSGCylinder3D);
-		GDREGISTER_CLASS(CSGTorus3D);
-		GDREGISTER_CLASS(CSGPolygon3D);
-		GDREGISTER_CLASS(CSGCombiner3D);
-#ifndef NAVIGATION_3D_DISABLED
-		CSGShape3D::navmesh_parse_init();
-#endif // NAVIGATION_3D_DISABLED
-	}
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		EditorPlugins::add_by_type<EditorPluginCSG>();
-	}
-#endif
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "height_weight", PROPERTY_HINT_RANGE, "0.001,100,0.001,or_greater"), "set_height_weight", "get_height_weight");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "slope_width", PROPERTY_HINT_RANGE, "-1,10,0.001,or_greater,suffix:m"), "set_slope_width", "get_slope_width");
 }
 
-void uninitialize_csg_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+void CSGHeightMapLayer::set_height_weight(real_t p_weight) {
+	p_weight = MAX(p_weight, real_t(0.001));
+	if (Math::is_equal_approx(height_weight, p_weight)) {
 		return;
 	}
+	height_weight = p_weight;
+	emit_changed();
+}
+
+real_t CSGHeightMapLayer::get_height_weight() const {
+	return height_weight;
+}
+
+void CSGHeightMapLayer::set_slope_width(real_t p_width) {
+	p_width = MAX(p_width, real_t(-1.0));
+	if (Math::is_equal_approx(slope_width, p_width)) {
+		return;
+	}
+	slope_width = p_width;
+	emit_changed();
+}
+
+real_t CSGHeightMapLayer::get_slope_width() const {
+	return slope_width;
 }

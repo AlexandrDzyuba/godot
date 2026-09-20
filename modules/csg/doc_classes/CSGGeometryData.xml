@@ -5,6 +5,7 @@
 	<methods>
 		<method name="get_boundary_edges" qualifiers="const"><return type="PackedByteArray" /><description>Returns one boundary flag per edge.</description></method>
 		<method name="get_brush_ids" qualifiers="const"><return type="PackedInt32Array" /><description>Returns source brush ordinals.</description></method>
+		<method name="get_layer_ids" qualifiers="const"><return type="PackedInt32Array" /><description>Returns semantic layer IDs. [CSGHeightMap3D] uses the quantized height level as the layer ID.</description></method>
 		<method name="get_edge_count" qualifiers="const"><return type="int" /><description>Returns the welded edge count.</description></method>
 		<method name="get_edge_faces" qualifiers="const"><return type="PackedInt32Array" /><description>Returns the two incident faces for each edge.</description></method>
 		<method name="get_edge_sharpness" qualifiers="const"><return type="PackedFloat32Array" /><description>Returns the angle in radians between incident faces.</description></method>

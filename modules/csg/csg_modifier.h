@@ -40,6 +40,7 @@ public:
 	PackedInt32Array get_surface_ids() const;
 	PackedInt32Array get_material_ids() const;
 	PackedInt32Array get_brush_ids() const;
+	PackedInt32Array get_layer_ids() const;
 	PackedByteArray get_face_generation() const;
 	PackedStringArray get_face_semantics() const;
 	void set_face_semantics(const PackedStringArray &p_semantics);

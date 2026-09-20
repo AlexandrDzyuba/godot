@@ -417,6 +417,11 @@ static NativePoint _average_points(const Vector<NativePoint> &p_points) {
 		return result;
 	}
 	result.properties.resize(p_points[0].properties.size());
+	// Vector does not initialize trivially constructible values on resize().
+	// Cap-center properties must start at zero before accumulating the boundary
+	// values, otherwise arbitrary memory can turn into NaNs and reject an
+	// otherwise valid bevel before Manifold construction.
+	result.properties.fill(0.0);
 	for (const NativePoint &point : p_points) {
 		result.position += point.position;
 		for (int i = 0; i < result.properties.size(); i++) {

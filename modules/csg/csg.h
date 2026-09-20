@@ -57,6 +57,7 @@ struct CSGBrush {
 		uint32_t source_face_id = 0;
 		uint32_t surface_id = 0;
 		uint32_t brush_id = 0;
+		uint32_t layer_id = 0;
 		FaceGeneration generation = FACE_ORIGINAL;
 		StringName semantic;
 		Dictionary custom;

@@ -64,6 +64,10 @@
 			<return type="PackedInt32Array" />
 			<description>Returns one material ID per face.</description>
 		</method>
+		<method name="get_layer_ids" qualifiers="const">
+			<return type="PackedInt32Array" />
+			<description>Returns one semantic layer ID per face.</description>
+		</method>
 		<method name="get_source_face_ids" qualifiers="const">
 			<return type="PackedInt64Array" />
 			<description>Returns the originating face ID for every face.</description>

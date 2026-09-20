@@ -15,6 +15,7 @@ void CSGModifierContext::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_surface_ids"), &CSGModifierContext::get_surface_ids);
 	ClassDB::bind_method(D_METHOD("get_material_ids"), &CSGModifierContext::get_material_ids);
 	ClassDB::bind_method(D_METHOD("get_brush_ids"), &CSGModifierContext::get_brush_ids);
+	ClassDB::bind_method(D_METHOD("get_layer_ids"), &CSGModifierContext::get_layer_ids);
 	ClassDB::bind_method(D_METHOD("get_face_generation"), &CSGModifierContext::get_face_generation);
 	ClassDB::bind_method(D_METHOD("get_face_semantics"), &CSGModifierContext::get_face_semantics);
 	ClassDB::bind_method(D_METHOD("set_face_semantics", "semantics"), &CSGModifierContext::set_face_semantics);
@@ -104,6 +105,10 @@ PackedInt32Array CSGModifierContext::get_material_ids() const {
 PackedInt32Array CSGModifierContext::get_brush_ids() const {
 	Ref<CSGGeometryData> data = get_geometry_data();
 	return data.is_valid() ? data->get_brush_ids() : PackedInt32Array();
+}
+PackedInt32Array CSGModifierContext::get_layer_ids() const {
+	Ref<CSGGeometryData> data = get_geometry_data();
+	return data.is_valid() ? data->get_layer_ids() : PackedInt32Array();
 }
 PackedByteArray CSGModifierContext::get_face_generation() const {
 	Ref<CSGGeometryData> data = get_geometry_data();

@@ -130,6 +130,49 @@ TEST_CASE("[SceneTree][CSG] CSGHeightMap3D preserves holes between contour layer
 	memdelete(height_map);
 }
 
+TEST_CASE("[SceneTree][CSG] CSGHeightMap3D slopes upper contour vertices") {
+	Ref<Image> image = memnew(Image(3, 3, false, Image::FORMAT_RGBA8));
+	image->fill(Color(0, 0, 0, 1));
+	image->set_pixel(1, 1, Color(1, 1, 1, 1));
+	Ref<ImageTexture> texture = ImageTexture::create_from_image(image);
+
+	CSGHeightMap3D *height_map = memnew(CSGHeightMap3D);
+	height_map->set_height_map(texture);
+	height_map->set_size(Vector3(3, 2, 3));
+	SceneTree::get_singleton()->get_root()->add_child(height_map);
+
+	auto get_highest_x_extent = [](const Vector<Vector3> &p_faces) {
+		real_t highest_y = p_faces[0].y;
+		for (const Vector3 &vertex : p_faces) {
+			highest_y = MAX(highest_y, vertex.y);
+		}
+		real_t extent = 0.0;
+		for (const Vector3 &vertex : p_faces) {
+			if (Math::is_equal_approx(vertex.y, highest_y)) {
+				extent = MAX(extent, Math::abs(vertex.x));
+			}
+		}
+		return extent;
+	};
+	const Vector<Vector3> vertical_faces = height_map->get_brush_faces();
+	REQUIRE_FALSE(vertical_faces.is_empty());
+	const real_t vertical_extent = get_highest_x_extent(vertical_faces);
+
+	height_map->set_slope_width(0.3);
+	CHECK(height_map->get_slope_width() == doctest::Approx(0.3));
+	const Vector<Vector3> sloped_faces = height_map->get_brush_faces();
+	REQUIRE_FALSE(sloped_faces.is_empty());
+	CHECK(get_highest_x_extent(sloped_faces) < vertical_extent - 0.25);
+	Ref<CSGGeometryData> geometry = height_map->get_geometry_data();
+	REQUIRE(geometry.is_valid());
+	for (uint8_t boundary : geometry->get_boundary_edges()) {
+		CHECK(boundary == 0);
+	}
+
+	SceneTree::get_singleton()->get_root()->remove_child(height_map);
+	memdelete(height_map);
+}
+
 TEST_CASE("[SceneTree][CSG] CSGHeightMap3D samples a texture region") {
 	Ref<Image> image = memnew(Image(4, 1, false, Image::FORMAT_RGBA8));
 	image->set_pixel(0, 0, Color(0, 0, 0, 1));
@@ -168,6 +211,59 @@ TEST_CASE("[SceneTree][CSG] CSGHeightMap3D samples a texture region") {
 	faces = height_map->get_brush_faces();
 	REQUIRE_FALSE(faces.is_empty());
 	CHECK(get_highest_vertex(faces) == doctest::Approx(1.0));
+
+	SceneTree::get_singleton()->get_root()->remove_child(height_map);
+	memdelete(height_map);
+}
+
+TEST_CASE("[SceneTree][CSG] CSGHeightMap3D supports per-layer settings and IDs") {
+	Ref<Image> image = memnew(Image(3, 1, false, Image::FORMAT_RGBA8));
+	image->set_pixel(0, 0, Color(0, 0, 0, 1));
+	image->set_pixel(1, 0, Color(0.5, 0.5, 0.5, 1));
+	image->set_pixel(2, 0, Color(1, 1, 1, 1));
+	Ref<ImageTexture> texture = ImageTexture::create_from_image(image);
+
+	Ref<CSGHeightMapLayer> middle_layer;
+	middle_layer.instantiate();
+	middle_layer->set_height_weight(3.0);
+	middle_layer->set_slope_width(0.1);
+	Ref<CSGHeightMapLayer> high_layer;
+	high_layer.instantiate();
+	high_layer->set_height_weight(1.0);
+	high_layer->set_slope_width(0.2);
+	TypedArray<CSGHeightMapLayer> settings;
+	settings.resize(3);
+	settings[1] = middle_layer;
+	settings[2] = high_layer;
+
+	CSGHeightMap3D *height_map = memnew(CSGHeightMap3D);
+	height_map->set_height_map(texture);
+	height_map->set_size(Vector3(3, 4, 1));
+	height_map->set_base_thickness(0.1);
+	height_map->set_height_steps(3);
+	height_map->set_layer_settings(settings);
+	CHECK(height_map->get_layer_settings().size() == 3);
+	SceneTree::get_singleton()->get_root()->add_child(height_map);
+
+	const Vector<Vector3> faces = height_map->get_brush_faces();
+	REQUIRE_FALSE(faces.is_empty());
+	bool found_weighted_middle_height = false;
+	for (const Vector3 &vertex : faces) {
+		found_weighted_middle_height |= Math::is_equal_approx(vertex.y, real_t(1.025));
+	}
+	CHECK(found_weighted_middle_height);
+
+	Ref<CSGGeometryData> geometry = height_map->get_geometry_data();
+	REQUIRE(geometry.is_valid());
+	bool found_layers[3] = {};
+	for (int32_t layer_id : geometry->get_layer_ids()) {
+		if (layer_id >= 0 && layer_id < 3) {
+			found_layers[layer_id] = true;
+		}
+	}
+	CHECK(found_layers[0]);
+	CHECK(found_layers[1]);
+	CHECK(found_layers[2]);
 
 	SceneTree::get_singleton()->get_root()->remove_child(height_map);
 	memdelete(height_map);
@@ -219,8 +315,10 @@ TEST_CASE("[CSG] Semantic geometry data and native attribute modifier") {
 	brush.build_from_faces(vertices, Vector<Vector2>(), Vector<bool>(), Vector<Ref<Material>>(), Vector<bool>());
 	brush.faces.write[0].metadata.brush_id = 7;
 	brush.faces.write[0].metadata.surface_id = 3;
+	brush.faces.write[0].metadata.layer_id = 5;
 	brush.faces.write[1].metadata.brush_id = 7;
 	brush.faces.write[1].metadata.surface_id = 3;
+	brush.faces.write[1].metadata.layer_id = 5;
 
 	Ref<CSGModifierContext> context;
 	context.instantiate();
@@ -248,12 +346,12 @@ TEST_CASE("[CSG] Semantic geometry data and native attribute modifier") {
 	modifier->set_custom_override_enabled(3, true);
 	Ref<CSGModifierChannelOverride> custom = modifier->get_custom_override(3);
 	custom->get_red()->set_source(CSGModifierValue::SOURCE_BRUSH_ID);
-	custom->get_green()->set_source(CSGModifierValue::SOURCE_SURFACE_ID);
+	custom->get_green()->set_source(CSGModifierValue::SOURCE_LAYER_ID);
 	custom->get_blue()->set_source(CSGModifierValue::SOURCE_FACE_ID);
 	modifier->process(context);
 	CHECK(brush.custom_channels & (1u << 3));
 	CHECK(brush.faces[0].customs[3][0].x == doctest::Approx(7.0));
-	CHECK(brush.faces[0].customs[3][0].y == doctest::Approx(3.0));
+	CHECK(brush.faces[0].customs[3][0].y == doctest::Approx(5.0));
 	CHECK(brush.faces[0].customs[3][0].z == doctest::Approx(0.0));
 	CHECK(brush.faces[0].customs[3][0].w == doctest::Approx(1.0));
 

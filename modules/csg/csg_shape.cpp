@@ -301,6 +301,7 @@ enum ManifoldProperty {
 	MANIFOLD_PROPERTY_SOURCE_FACE_ID,
 	MANIFOLD_PROPERTY_SURFACE_ID,
 	MANIFOLD_PROPERTY_BRUSH_ID,
+	MANIFOLD_PROPERTY_LAYER_ID,
 	MANIFOLD_PROPERTY_FACE_GENERATION,
 	MANIFOLD_PROPERTY_MAX
 };
@@ -355,6 +356,7 @@ static void _unpack_manifold(
 				face.metadata.source_face_id = source_face_id;
 				face.metadata.surface_id = uint32_t(MAX(Math::round(first_properties[MANIFOLD_PROPERTY_SURFACE_ID]), 0.0));
 				face.metadata.brush_id = brush_id;
+				face.metadata.layer_id = uint32_t(MAX(Math::round(first_properties[MANIFOLD_PROPERTY_LAYER_ID]), 0.0));
 				face.metadata.generation = CSGBrush::FaceGeneration(uint32_t(CLAMP(Math::round(first_properties[MANIFOLD_PROPERTY_FACE_GENERATION]), 0.0, double(CSGBrush::FACE_TOPOLOGY_GENERATED))));
 			}
 			face.metadata.face_id = r_mesh_merge->faces.size();
@@ -540,6 +542,7 @@ static void _pack_manifold(
 				vert[MANIFOLD_PROPERTY_SOURCE_FACE_ID] = face.metadata.source_face_id;
 				vert[MANIFOLD_PROPERTY_SURFACE_ID] = face.metadata.surface_id;
 				vert[MANIFOLD_PROPERTY_BRUSH_ID] = face.metadata.brush_id;
+				vert[MANIFOLD_PROPERTY_LAYER_ID] = face.metadata.layer_id;
 				vert[MANIFOLD_PROPERTY_FACE_GENERATION] = face.metadata.generation;
 			}
 		}
@@ -2677,6 +2680,83 @@ static manifold::Polygons _height_map_trace_contours(const Vector<real_t> &p_hei
 	return polygons;
 }
 
+static HashMap<Vector2, Vector2> _height_map_build_slope_targets(const manifold::Polygons &p_polygons, real_t p_width, const Vector2 &p_half_size) {
+	HashMap<Vector2, Vector2> targets;
+	const real_t border_epsilon = MAX(MIN(p_half_size.x, p_half_size.y) * real_t(0.000001), real_t(CMP_EPSILON));
+	for (const manifold::SimplePolygon &polygon : p_polygons) {
+		if (polygon.size() < 3) {
+			continue;
+		}
+		const int point_count = int(polygon.size());
+		Vector<Vector2> source_polygon;
+		source_polygon.resize(point_count);
+		real_t signed_area = 0.0;
+		for (int point_i = 0; point_i < point_count; point_i++) {
+			const manifold::vec2 &source = polygon[point_i];
+			const manifold::vec2 &source_next = polygon[(point_i + 1) % point_count];
+			source_polygon.write[point_i] = Vector2(source[0], source[1]);
+			signed_area += real_t(source[0] * source_next[1] - source[1] * source_next[0]);
+		}
+		auto is_valid_offset = [&](real_t p_test_width) {
+			const real_t delta = signed_area > 0.0 ? -p_test_width : p_test_width;
+			const Vector<Vector<Vector2>> offset = Geometry2D::offset_polygon(source_polygon, delta, Geometry2D::JOIN_MITER);
+			return offset.size() == 1 && offset[0].size() >= 3;
+		};
+		real_t effective_width = p_width;
+		if (!is_valid_offset(effective_width)) {
+			real_t valid_width = 0.0;
+			real_t invalid_width = effective_width;
+			for (int iteration = 0; iteration < 12; iteration++) {
+				const real_t candidate = (valid_width + invalid_width) * 0.5;
+				if (is_valid_offset(candidate)) {
+					valid_width = candidate;
+				} else {
+					invalid_width = candidate;
+				}
+			}
+			effective_width = valid_width * real_t(0.99);
+		}
+		for (int point_i = 0; point_i < point_count; point_i++) {
+			const manifold::vec2 &source_previous = polygon[(point_i + point_count - 1) % point_count];
+			const manifold::vec2 &source_current = polygon[point_i];
+			const manifold::vec2 &source_next = polygon[(point_i + 1) % point_count];
+			const Vector2 previous(source_previous[0], source_previous[1]);
+			const Vector2 current(source_current[0], source_current[1]);
+			const Vector2 next(source_next[0], source_next[1]);
+			const bool on_chunk_border = Math::abs(Math::abs(current.x) - p_half_size.x) <= border_epsilon || Math::abs(Math::abs(current.y) - p_half_size.y) <= border_epsilon;
+			if (on_chunk_border) {
+				targets.insert(current, current);
+				continue;
+			}
+
+			const Vector2 incoming = current - previous;
+			const Vector2 outgoing = next - current;
+			const real_t incoming_length = incoming.length();
+			const real_t outgoing_length = outgoing.length();
+			if (incoming_length <= CMP_EPSILON || outgoing_length <= CMP_EPSILON) {
+				targets.insert(current, current);
+				continue;
+			}
+			const Vector2 incoming_normal(-incoming.y / incoming_length, incoming.x / incoming_length);
+			const Vector2 outgoing_normal(-outgoing.y / outgoing_length, outgoing.x / outgoing_length);
+			const Vector2 normal_sum = incoming_normal + outgoing_normal;
+			if (normal_sum.length_squared() <= CMP_EPSILON * CMP_EPSILON) {
+				targets.insert(current, current);
+				continue;
+			}
+			const Vector2 bisector = normal_sum.normalized();
+			const real_t denominator = bisector.dot(incoming_normal);
+			if (denominator <= CMP_EPSILON) {
+				targets.insert(current, current);
+				continue;
+			}
+			const real_t miter_length = MIN(effective_width / denominator, effective_width * real_t(2.0));
+			targets.insert(current, current + bisector * miter_length);
+		}
+	}
+	return targets;
+}
+
 } // namespace
 
 CSGBrush *CSGHeightMap3D::_build_brush() {
@@ -2694,6 +2774,50 @@ CSGBrush *CSGHeightMap3D::_build_brush() {
 Rect2i CSGHeightMap3D::_get_effective_region(int p_image_width, int p_image_height) const {
 	const Rect2i image_rect(0, 0, p_image_width, p_image_height);
 	return region_enabled ? image_rect.intersection(region_rect) : image_rect;
+}
+
+Vector<real_t> CSGHeightMap3D::_build_layer_heights(real_t p_minimum_top, real_t p_maximum_top) const {
+	Vector<real_t> layer_heights;
+	if (height_steps <= 1) {
+		return layer_heights;
+	}
+	layer_heights.resize(height_steps);
+	layer_heights.write[0] = p_minimum_top;
+	if (height_steps == 2) {
+		layer_heights.write[1] = p_maximum_top;
+		return layer_heights;
+	}
+
+	real_t total_weight = 0.0;
+	for (int layer = 1; layer < height_steps; layer++) {
+		Ref<CSGHeightMapLayer> settings;
+		if (layer < layer_settings.size()) {
+			settings = layer_settings[layer];
+		}
+		total_weight += settings.is_valid() ? settings->get_height_weight() : real_t(1.0);
+	}
+	total_weight = MAX(total_weight, real_t(CMP_EPSILON));
+	real_t height = p_minimum_top;
+	for (int layer = 1; layer < height_steps; layer++) {
+		Ref<CSGHeightMapLayer> settings;
+		if (layer < layer_settings.size()) {
+			settings = layer_settings[layer];
+		}
+		const real_t weight = settings.is_valid() ? settings->get_height_weight() : real_t(1.0);
+		height += (p_maximum_top - p_minimum_top) * weight / total_weight;
+		layer_heights.write[layer] = layer == height_steps - 1 ? p_maximum_top : height;
+	}
+	return layer_heights;
+}
+
+real_t CSGHeightMap3D::_get_layer_slope_width(int p_layer) const {
+	if (p_layer >= 0 && p_layer < layer_settings.size()) {
+		Ref<CSGHeightMapLayer> settings = layer_settings[p_layer];
+		if (settings.is_valid() && settings->get_slope_width() >= 0.0) {
+			return settings->get_slope_width();
+		}
+	}
+	return slope_width;
 }
 
 CSGBrush *CSGHeightMap3D::_build_cell_grid_brush() {
@@ -2753,7 +2877,10 @@ CSGBrush *CSGHeightMap3D::_build_cell_grid_brush() {
 	const real_t minimum_top_y = bottom_y + MIN(base_thickness, size.y);
 	const real_t maximum_top_y = size.y * 0.5;
 	Vector<real_t> heights;
+	Vector<int> cell_layer_ids;
+	const Vector<real_t> configured_heights = _build_layer_heights(minimum_top_y, maximum_top_y);
 	heights.resize(grid_width * grid_depth);
+	cell_layer_ids.resize(grid_width * grid_depth);
 	for (int z = 0; z < grid_depth; z++) {
 		for (int x = 0; x < grid_width; x++) {
 			const int sample_x = effective_region.position.x + MIN(x * sampling_step + sampling_step / 2, region_width - 1);
@@ -2762,10 +2889,14 @@ CSGBrush *CSGHeightMap3D::_build_cell_grid_brush() {
 			if (invert_height) {
 				value = 1.0 - value;
 			}
+			int layer_id = 0;
 			if (height_steps > 1) {
-				value = Math::round(value * (height_steps - 1)) / (height_steps - 1);
+				layer_id = CLAMP(int(Math::round(value * (height_steps - 1))), 0, height_steps - 1);
+				heights.write[z * grid_width + x] = configured_heights[layer_id];
+			} else {
+				heights.write[z * grid_width + x] = Math::lerp(minimum_top_y, maximum_top_y, value);
 			}
-			heights.write[z * grid_width + x] = Math::lerp(minimum_top_y, maximum_top_y, value);
+			cell_layer_ids.write[z * grid_width + x] = layer_id;
 		}
 	}
 
@@ -2987,6 +3118,9 @@ CSGBrush *CSGHeightMap3D::_build_cell_grid_brush() {
 	CSGBrush *height_map_brush = _create_brush_from_arrays(vertices, uvs, smooth, materials, surface_ids);
 	for (int face = 0; face < height_map_brush->faces.size(); face++) {
 		height_map_brush->faces.write[face].metadata.source_face_id = source_ids[face];
+		if (surface_ids[face] != SURFACE_BOTTOM && source_ids[face] < uint32_t(cell_layer_ids.size())) {
+			height_map_brush->faces.write[face].metadata.layer_id = cell_layer_ids[source_ids[face]];
+		}
 		height_map_brush->faces.write[face].metadata.semantic = semantics[face];
 	}
 	return height_map_brush;
@@ -3048,6 +3182,7 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 	const real_t maximum_top_y = size.y * 0.5;
 	Vector<real_t> heights;
 	Vector<real_t> levels;
+	const Vector<real_t> configured_heights = _build_layer_heights(minimum_top_y, maximum_top_y);
 	heights.resize(grid_width * grid_depth);
 	for (int z = 0; z < grid_depth; z++) {
 		for (int x = 0; x < grid_width; x++) {
@@ -3057,10 +3192,13 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 			if (invert_height) {
 				value = 1.0 - value;
 			}
+			real_t height;
 			if (height_steps > 1) {
-				value = Math::round(value * (height_steps - 1)) / (height_steps - 1);
+				const int layer_id = CLAMP(int(Math::round(value * (height_steps - 1))), 0, height_steps - 1);
+				height = configured_heights[layer_id];
+			} else {
+				height = Math::lerp(minimum_top_y, maximum_top_y, value);
 			}
-			const real_t height = Math::lerp(minimum_top_y, maximum_top_y, value);
 			heights.write[z * grid_width + x] = height;
 			levels.push_back(height);
 		}
@@ -3072,12 +3210,30 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 			unique_levels.push_back(level);
 		}
 	}
+	Vector<int> unique_layer_ids;
+	unique_layer_ids.resize(unique_levels.size());
+	for (int level_i = 0; level_i < unique_levels.size(); level_i++) {
+		int layer_id = 0;
+		if (height_steps > 1) {
+			real_t closest_distance = Math::abs(unique_levels[level_i] - configured_heights[0]);
+			for (int candidate = 1; candidate < configured_heights.size(); candidate++) {
+				const real_t distance = Math::abs(unique_levels[level_i] - configured_heights[candidate]);
+				if (distance < closest_distance) {
+					closest_distance = distance;
+					layer_id = candidate;
+				}
+			}
+		}
+		unique_layer_ids.write[level_i] = layer_id;
+	}
 
 	std::vector<manifold::Manifold> layer_manifolds;
+	HashMap<int, int> original_layer_ids;
 	layer_manifolds.reserve(unique_levels.size());
 	const real_t join_overlap_target = MAX(MIN(size.x / grid_width, size.z / grid_depth) * real_t(0.00001), real_t(CMP_EPSILON));
 	for (int level_i = unique_levels.size() - 1; level_i >= 0; level_i--) {
 		const real_t level = unique_levels[level_i];
+		const int layer_id = unique_layer_ids[level_i];
 		const real_t lower_level = level_i == 0 ? bottom_y : unique_levels[level_i - 1];
 		const real_t level_interval = level - lower_level;
 		const real_t join_overlap = level_i == 0 ? 0.0 : MIN(join_overlap_target, level_interval * real_t(0.25));
@@ -3094,10 +3250,28 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 		// instead of extruding every cumulative mask from the common bottom. The
 		// old overlapping volumes produced dense coplanar subdivisions and harmed
 		// beveling.
-		manifold::Manifold layer = manifold::Manifold::Extrude(polygons, extrusion_height).Translate(manifold::vec3(0.0, 0.0, slab_bottom - bottom_y));
+		manifold::Manifold layer = manifold::Manifold::Extrude(polygons, extrusion_height);
+		const real_t layer_slope_width = _get_layer_slope_width(layer_id);
+		if (layer_slope_width > 0.0) {
+			const HashMap<Vector2, Vector2> slope_targets = _height_map_build_slope_targets(polygons, layer_slope_width, Vector2(size.x, size.z) * 0.5);
+			layer = layer.Warp([&](manifold::vec3 &p_point) {
+				if (!Math::is_equal_approx(p_point[2], double(extrusion_height))) {
+					return;
+				}
+				const Vector2 source(p_point[0], p_point[1]);
+				HashMap<Vector2, Vector2>::ConstIterator target = slope_targets.find(source);
+				if (target) {
+					p_point[0] = target->value.x;
+					p_point[1] = target->value.y;
+				}
+			});
+		}
+		layer = layer.Translate(manifold::vec3(0.0, 0.0, slab_bottom - bottom_y));
 		if (layer.Status() != manifold::Manifold::Error::NoError || layer.IsEmpty()) {
 			return memnew(CSGBrush);
 		}
+		layer = layer.AsOriginal();
+		original_layer_ids.insert(layer.OriginalID(), layer_id);
 		layer_manifolds.push_back(std::move(layer));
 	}
 	if (layer_manifolds.empty()) {
@@ -3122,6 +3296,7 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 	Vector<bool> smooth;
 	Vector<Ref<Material>> materials;
 	Vector<int> surface_ids;
+	Vector<int> face_layer_ids;
 	Vector<StringName> semantics;
 	const int face_count = mesh.triVerts.size() / 3;
 	vertices.resize(face_count * 3);
@@ -3129,6 +3304,7 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 	smooth.resize(face_count);
 	materials.resize(face_count);
 	surface_ids.resize(face_count);
+	face_layer_ids.resize(face_count);
 	semantics.resize(face_count);
 
 	const Ref<Material> cliff_material = side_material.is_valid() ? side_material : material;
@@ -3142,7 +3318,18 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 		return Vector2(p_point.x / size.x + 0.5, p_point.z / size.z + 0.5);
 	};
 
+	size_t run_i = 0;
 	for (int face = 0; face < face_count; face++) {
+		while (run_i + 1 < mesh.runIndex.size() && size_t(face * 3) >= mesh.runIndex[run_i + 1]) {
+			run_i++;
+		}
+		int face_layer_id = 0;
+		if (run_i < mesh.runOriginalID.size()) {
+			HashMap<int, int>::ConstIterator layer_id = original_layer_ids.find(mesh.runOriginalID[run_i]);
+			if (layer_id) {
+				face_layer_id = layer_id->value;
+			}
+		}
 		Vector3 manifold_vertices[3];
 		for (int corner = 0; corner < 3; corner++) {
 			manifold_vertices[corner] = to_world(mesh.triVerts[face * 3 + corner]);
@@ -3152,14 +3339,15 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 		// already in CSGBrush's inward-normal winding; negate it only for surface
 		// classification below.
 		const Vector3 normal = -(manifold_vertices[1] - manifold_vertices[0]).cross(manifold_vertices[2] - manifold_vertices[0]).normalized();
+		const bool horizontal = Math::is_equal_approx(manifold_vertices[0].y, manifold_vertices[1].y) && Math::is_equal_approx(manifold_vertices[0].y, manifold_vertices[2].y);
 		SurfaceType surface = SURFACE_CLIFF;
 		Ref<Material> face_material = cliff_material;
 		StringName semantic = SNAME("HEIGHTMAP_CLIFF");
-		if (normal.y > 0.9) {
+		if (horizontal && normal.y > 0.0) {
 			surface = SURFACE_TOP;
 			face_material = material;
 			semantic = SNAME("HEIGHTMAP_TOP");
-		} else if (normal.y < -0.9) {
+		} else if (horizontal && normal.y < 0.0) {
 			surface = SURFACE_BOTTOM;
 			face_material = base_material;
 			semantic = SNAME("HEIGHTMAP_BOTTOM");
@@ -3192,11 +3380,13 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 		smooth.write[face] = false;
 		materials.write[face] = face_material;
 		surface_ids.write[face] = surface;
+		face_layer_ids.write[face] = surface == SURFACE_BOTTOM ? 0 : face_layer_id;
 		semantics.write[face] = semantic;
 	}
 
 	CSGBrush *height_map_brush = _create_brush_from_arrays(vertices, uvs, smooth, materials, surface_ids);
 	for (int face = 0; face < height_map_brush->faces.size(); face++) {
+		height_map_brush->faces.write[face].metadata.layer_id = face_layer_ids[face];
 		height_map_brush->faces.write[face].metadata.semantic = semantics[face];
 	}
 	return height_map_brush;
@@ -3205,6 +3395,10 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 void CSGHeightMap3D::_height_map_changed() {
 	_make_dirty();
 	callable_mp((Node3D *)this, &Node3D::update_gizmos).call_deferred();
+}
+
+void CSGHeightMap3D::_layer_settings_changed() {
+	_make_dirty();
 }
 
 void CSGHeightMap3D::_bind_methods() {
@@ -3224,6 +3418,10 @@ void CSGHeightMap3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_height_steps"), &CSGHeightMap3D::get_height_steps);
 	ClassDB::bind_method(D_METHOD("set_sampling_step", "step"), &CSGHeightMap3D::set_sampling_step);
 	ClassDB::bind_method(D_METHOD("get_sampling_step"), &CSGHeightMap3D::get_sampling_step);
+	ClassDB::bind_method(D_METHOD("set_slope_width", "width"), &CSGHeightMap3D::set_slope_width);
+	ClassDB::bind_method(D_METHOD("get_slope_width"), &CSGHeightMap3D::get_slope_width);
+	ClassDB::bind_method(D_METHOD("set_layer_settings", "settings"), &CSGHeightMap3D::set_layer_settings);
+	ClassDB::bind_method(D_METHOD("get_layer_settings"), &CSGHeightMap3D::get_layer_settings);
 	ClassDB::bind_method(D_METHOD("set_invert_height", "invert"), &CSGHeightMap3D::set_invert_height);
 	ClassDB::bind_method(D_METHOD("is_height_inverted"), &CSGHeightMap3D::is_height_inverted);
 	ClassDB::bind_method(D_METHOD("set_base_thickness", "thickness"), &CSGHeightMap3D::set_base_thickness);
@@ -3245,6 +3443,8 @@ void CSGHeightMap3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "generation_mode", PROPERTY_HINT_ENUM, "Cell Grid,Contour Layers"), "set_generation_mode", "get_generation_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "height_steps", PROPERTY_HINT_RANGE, "0,256,1,or_greater"), "set_height_steps", "get_height_steps");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "sampling_step", PROPERTY_HINT_RANGE, "1,64,1,or_greater"), "set_sampling_step", "get_sampling_step");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "slope_width", PROPERTY_HINT_RANGE, "0,10,0.001,or_greater,suffix:m"), "set_slope_width", "get_slope_width");
+	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "layer_settings", PROPERTY_HINT_ARRAY_TYPE, MAKE_RESOURCE_TYPE_HINT("CSGHeightMapLayer")), "set_layer_settings", "get_layer_settings");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "invert_height"), "set_invert_height", "is_height_inverted");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "base_thickness", PROPERTY_HINT_RANGE, "0.00001,100,0.001,or_greater,suffix:m"), "set_base_thickness", "get_base_thickness");
 	ADD_GROUP("Material", "");
@@ -3367,6 +3567,41 @@ void CSGHeightMap3D::set_sampling_step(int p_step) {
 
 int CSGHeightMap3D::get_sampling_step() const {
 	return sampling_step;
+}
+
+void CSGHeightMap3D::set_slope_width(real_t p_width) {
+	p_width = MAX(p_width, real_t(0.0));
+	if (Math::is_equal_approx(slope_width, p_width)) {
+		return;
+	}
+	slope_width = p_width;
+	_make_dirty();
+}
+
+real_t CSGHeightMap3D::get_slope_width() const {
+	return slope_width;
+}
+
+void CSGHeightMap3D::set_layer_settings(const TypedArray<CSGHeightMapLayer> &p_settings) {
+	const Callable changed_callable = callable_mp(this, &CSGHeightMap3D::_layer_settings_changed);
+	for (int i = 0; i < layer_settings.size(); i++) {
+		Ref<CSGHeightMapLayer> settings = layer_settings[i];
+		if (settings.is_valid() && settings->is_connected(StringName("changed"), changed_callable)) {
+			settings->disconnect(StringName("changed"), changed_callable);
+		}
+	}
+	layer_settings = p_settings;
+	for (int i = 0; i < layer_settings.size(); i++) {
+		Ref<CSGHeightMapLayer> settings = layer_settings[i];
+		if (settings.is_valid() && !settings->is_connected(StringName("changed"), changed_callable)) {
+			settings->connect(StringName("changed"), changed_callable);
+		}
+	}
+	_make_dirty();
+}
+
+TypedArray<CSGHeightMapLayer> CSGHeightMap3D::get_layer_settings() const {
+	return layer_settings;
 }
 
 void CSGHeightMap3D::set_invert_height(bool p_invert) {

@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  register_types.cpp                                                    */
+/*  csg_height_map_layer.h                                                */
 /**************************************************************************/
 /*                         This file is part of:                          */
 /*                             GODOT ENGINE                               */
@@ -28,57 +28,22 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#include "register_types.h"
+#pragma once
 
-#include "csg_attribute_modifier.h"
-#include "csg_bevel_settings.h"
-#include "csg_geometry_data.h"
-#include "csg_height_map_layer.h"
-#include "csg_modifier.h"
-#include "csg_shape.h"
-#include "csg_topology_settings.h"
+#include "core/io/resource.h"
 
-#include "core/object/class_db.h"
+class CSGHeightMapLayer : public Resource {
+	GDCLASS(CSGHeightMapLayer, Resource);
 
-#ifdef TOOLS_ENABLED
-#include "editor/csg_gizmos.h"
-#endif
+	real_t height_weight = 1.0;
+	real_t slope_width = -1.0;
 
-void initialize_csg_module(ModuleInitializationLevel p_level) {
-	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
-		GDREGISTER_CLASS(CSGGeometryData);
-		GDREGISTER_CLASS(CSGHeightMapLayer);
-		GDREGISTER_CLASS(CSGModifierContext);
-		GDREGISTER_CLASS(CSGModifier);
-		GDREGISTER_CLASS(CSGModifierValue);
-		GDREGISTER_CLASS(CSGModifierChannelOverride);
-		GDREGISTER_CLASS(CSGAttributeModifier);
-		GDREGISTER_CLASS(CSGFaceSemanticModifier);
-		GDREGISTER_CLASS(CSGBevelSettings);
-		GDREGISTER_CLASS(CSGTopologySettings);
-		GDREGISTER_ABSTRACT_CLASS(CSGShape3D);
-		GDREGISTER_ABSTRACT_CLASS(CSGPrimitive3D);
-		GDREGISTER_CLASS(CSGMesh3D);
-		GDREGISTER_CLASS(CSGSphere3D);
-		GDREGISTER_CLASS(CSGBox3D);
-		GDREGISTER_CLASS(CSGHeightMap3D);
-		GDREGISTER_CLASS(CSGCylinder3D);
-		GDREGISTER_CLASS(CSGTorus3D);
-		GDREGISTER_CLASS(CSGPolygon3D);
-		GDREGISTER_CLASS(CSGCombiner3D);
-#ifndef NAVIGATION_3D_DISABLED
-		CSGShape3D::navmesh_parse_init();
-#endif // NAVIGATION_3D_DISABLED
-	}
-#ifdef TOOLS_ENABLED
-	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
-		EditorPlugins::add_by_type<EditorPluginCSG>();
-	}
-#endif
-}
+protected:
+	static void _bind_methods();
 
-void uninitialize_csg_module(ModuleInitializationLevel p_level) {
-	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
-		return;
-	}
-}
+public:
+	void set_height_weight(real_t p_weight);
+	real_t get_height_weight() const;
+	void set_slope_width(real_t p_width);
+	real_t get_slope_width() const;
+};

@@ -32,6 +32,7 @@
 
 #include "csg.h"
 #include "csg_bevel_settings.h"
+#include "csg_height_map_layer.h"
 #include "csg_modifier.h"
 #include "csg_topology_settings.h"
 
@@ -359,6 +360,8 @@ private:
 	CSGBrush *_build_cell_grid_brush();
 	CSGBrush *_build_contour_layers_brush();
 	Rect2i _get_effective_region(int p_image_width, int p_image_height) const;
+	Vector<real_t> _build_layer_heights(real_t p_minimum_top, real_t p_maximum_top) const;
+	real_t _get_layer_slope_width(int p_layer) const;
 
 	Ref<Texture2D> height_map;
 	bool region_enabled = false;
@@ -368,6 +371,8 @@ private:
 	GenerationMode generation_mode = GENERATION_CONTOUR_LAYERS;
 	int height_steps = 16;
 	int sampling_step = 1;
+	real_t slope_width = 0.0;
+	TypedArray<CSGHeightMapLayer> layer_settings;
 	bool invert_height = false;
 	real_t base_thickness = 0.01;
 	Ref<Material> material;
@@ -375,6 +380,7 @@ private:
 	Ref<Material> bottom_material;
 
 	void _height_map_changed();
+	void _layer_settings_changed();
 
 protected:
 	static void _bind_methods();
@@ -396,6 +402,10 @@ public:
 	int get_height_steps() const;
 	void set_sampling_step(int p_step);
 	int get_sampling_step() const;
+	void set_slope_width(real_t p_width);
+	real_t get_slope_width() const;
+	void set_layer_settings(const TypedArray<CSGHeightMapLayer> &p_settings);
+	TypedArray<CSGHeightMapLayer> get_layer_settings() const;
 	void set_invert_height(bool p_invert);
 	bool is_height_inverted() const;
 	void set_base_thickness(real_t p_thickness);

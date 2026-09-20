@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CSGHeightMapLayer" inherits="Resource" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>Per-layer settings for a [CSGHeightMap3D].</brief_description>
+	<description>
+		Overrides the vertical thickness and slope of one quantized height-map layer. Its position in [member CSGHeightMap3D.layer_settings] is the layer ID.
+	</description>
+	<members>
+		<member name="height_weight" type="float" setter="set_height_weight" getter="get_height_weight" default="1.0">
+			Relative thickness of the interval ending at this layer. Weights are normalized so the highest layer still reaches the top of [member CSGHeightMap3D.size]. Index 0 uses [member CSGHeightMap3D.base_thickness].
+		</member>
+		<member name="slope_width" type="float" setter="set_slope_width" getter="get_slope_width" default="-1.0">
+			Slope width for this layer. A negative value inherits [member CSGHeightMap3D.slope_width]. This setting only affects contour-layer generation.
+		</member>
+	</members>
+</class>

@@ -46,6 +46,7 @@ void CSGGeometryData::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_surface_ids"), &CSGGeometryData::get_surface_ids);
 	ClassDB::bind_method(D_METHOD("get_material_ids"), &CSGGeometryData::get_material_ids);
 	ClassDB::bind_method(D_METHOD("get_brush_ids"), &CSGGeometryData::get_brush_ids);
+	ClassDB::bind_method(D_METHOD("get_layer_ids"), &CSGGeometryData::get_layer_ids);
 	ClassDB::bind_method(D_METHOD("get_face_generation"), &CSGGeometryData::get_face_generation);
 	ClassDB::bind_method(D_METHOD("get_face_semantics"), &CSGGeometryData::get_face_semantics);
 	ClassDB::bind_method(D_METHOD("get_face_custom_metadata"), &CSGGeometryData::get_face_custom_metadata);
@@ -83,6 +84,7 @@ void CSGGeometryData::build(const CSGBrush &p_brush, real_t p_merge_epsilon, rea
 	surface_ids.resize(p_brush.faces.size());
 	material_ids.resize(p_brush.faces.size());
 	brush_ids.resize(p_brush.faces.size());
+	layer_ids.resize(p_brush.faces.size());
 	face_generation.resize(p_brush.faces.size());
 	face_semantics.resize(p_brush.faces.size());
 	face_custom_metadata.resize(p_brush.faces.size());
@@ -95,6 +97,7 @@ void CSGGeometryData::build(const CSGBrush &p_brush, real_t p_merge_epsilon, rea
 		surface_ids.set(face_i, face.metadata.surface_id);
 		material_ids.set(face_i, face.material);
 		brush_ids.set(face_i, face.metadata.brush_id);
+		layer_ids.set(face_i, face.metadata.layer_id);
 		face_generation.set(face_i, face.metadata.generation);
 		face_semantics.set(face_i, String(face.metadata.semantic));
 		face_custom_metadata[face_i] = face.metadata.custom;
@@ -249,6 +252,9 @@ PackedInt32Array CSGGeometryData::get_material_ids() const {
 }
 PackedInt32Array CSGGeometryData::get_brush_ids() const {
 	return brush_ids;
+}
+PackedInt32Array CSGGeometryData::get_layer_ids() const {
+	return layer_ids;
 }
 PackedByteArray CSGGeometryData::get_face_generation() const {
 	return face_generation;
