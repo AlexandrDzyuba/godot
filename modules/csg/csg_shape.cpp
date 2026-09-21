@@ -52,6 +52,11 @@
 #endif // NAVIGATION_3D_DISABLED
 
 #include <manifold/manifold.h>
+#include <manifold/polygon.h>
+
+GODOT_GCC_WARNING_PUSH_AND_IGNORE("-Walloc-zero")
+#include <thirdparty/clipper2/include/clipper2/clipper.h>
+GODOT_GCC_WARNING_POP
 
 #include <cfloat> // FLT_EPSILON
 
@@ -1907,6 +1912,51 @@ CSGPrimitive3D::CSGPrimitive3D() {
 
 /////////////////////
 
+static Vector<Vector4> _csg_unpack_custom_array(const Variant &p_array, Mesh::ArrayCustomFormat p_format, int p_vertex_count) {
+	Vector<Vector4> result;
+	if (p_vertex_count <= 0) {
+		return result;
+	}
+	result.resize(p_vertex_count);
+	result.fill(Vector4());
+
+	if (p_format >= Mesh::ARRAY_CUSTOM_R_FLOAT) {
+		const int components = int(p_format) - int(Mesh::ARRAY_CUSTOM_R_FLOAT) + 1;
+		const PackedFloat32Array values = p_array;
+		if (values.size() != p_vertex_count * components) {
+			return Vector<Vector4>();
+		}
+		for (int vertex = 0; vertex < p_vertex_count; vertex++) {
+			for (int component = 0; component < components; component++) {
+				result.write[vertex][component] = values[vertex * components + component];
+			}
+		}
+		return result;
+	}
+
+	const bool half = p_format == Mesh::ARRAY_CUSTOM_RG_HALF || p_format == Mesh::ARRAY_CUSTOM_RGBA_HALF;
+	const int components = p_format == Mesh::ARRAY_CUSTOM_RG_HALF ? 2 : 4;
+	const int component_size = half ? 2 : 1;
+	const PackedByteArray values = p_array;
+	if (values.size() != p_vertex_count * components * component_size) {
+		return Vector<Vector4>();
+	}
+	for (int vertex = 0; vertex < p_vertex_count; vertex++) {
+		for (int component = 0; component < components; component++) {
+			const int offset = (vertex * components + component) * component_size;
+			if (half) {
+				const uint16_t encoded = uint16_t(values[offset]) | (uint16_t(values[offset + 1]) << 8);
+				result.write[vertex][component] = Math::half_to_float(encoded);
+			} else if (p_format == Mesh::ARRAY_CUSTOM_RGBA8_SNORM) {
+				result.write[vertex][component] = MAX(real_t(int8_t(values[offset])) / real_t(127.0), real_t(-1.0));
+			} else {
+				result.write[vertex][component] = real_t(values[offset]) / real_t(255.0);
+			}
+		}
+	}
+	return result;
+}
+
 CSGBrush *CSGMesh3D::_build_brush() {
 	if (mesh.is_null()) {
 		return memnew(CSGBrush);
@@ -1917,6 +1967,16 @@ CSGBrush *CSGMesh3D::_build_brush() {
 	Vector<Ref<Material>> materials;
 	Vector<int> surface_ids;
 	Vector<Vector2> uvs;
+	Vector<Color> colors;
+	Vector<Vector4> customs[CSGBrush::CUSTOM_CHANNEL_COUNT];
+	bool has_colors = false;
+	uint32_t custom_channels = 0;
+	Mesh::ArrayCustomFormat custom_formats[CSGBrush::CUSTOM_CHANNEL_COUNT] = {
+		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
+		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
+		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
+		Mesh::ARRAY_CUSTOM_RGBA_FLOAT,
+	};
 	Ref<Material> base_material = get_material();
 
 	for (int i = 0; i < mesh->get_surface_count(); i++) {
@@ -1950,6 +2010,33 @@ CSGBrush *CSGMesh3D::_build_brush() {
 			uvr = auvs.ptr();
 		}
 
+		const Vector<Color> acolors = arrays[Mesh::ARRAY_COLOR];
+		const bool surface_has_colors = acolors.size() == avertices.size();
+		const uint64_t surface_format = static_cast<uint64_t>(mesh->surface_get_format(i));
+		Vector<Vector4> acustoms[CSGBrush::CUSTOM_CHANNEL_COUNT];
+		bool surface_has_custom[CSGBrush::CUSTOM_CHANNEL_COUNT] = {};
+		for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+			const uint64_t channel_flag = uint64_t(Mesh::ARRAY_FORMAT_CUSTOM0) << custom_i;
+			if (!(surface_format & channel_flag)) {
+				continue;
+			}
+			const int format_shift = Mesh::ARRAY_FORMAT_CUSTOM0_SHIFT + custom_i * Mesh::ARRAY_FORMAT_CUSTOM_BITS;
+			const Mesh::ArrayCustomFormat format = Mesh::ArrayCustomFormat((surface_format >> format_shift) & Mesh::ARRAY_FORMAT_CUSTOM_MASK);
+			acustoms[custom_i] = _csg_unpack_custom_array(arrays[Mesh::ARRAY_CUSTOM0 + custom_i], format, avertices.size());
+			if (acustoms[custom_i].size() != avertices.size()) {
+				continue;
+			}
+			surface_has_custom[custom_i] = true;
+			if (!(custom_channels & (1u << custom_i))) {
+				custom_formats[custom_i] = format;
+			} else if (custom_formats[custom_i] != format) {
+				// CSGBrush has one format per channel across all material surfaces.
+				// Preserve mixed-format values by promoting the resulting channel.
+				custom_formats[custom_i] = Mesh::ARRAY_CUSTOM_RGBA_FLOAT;
+			}
+			custom_channels |= 1u << custom_i;
+		}
+
 		Ref<Material> mat;
 		if (base_material.is_valid()) {
 			mat = base_material;
@@ -1957,100 +2044,68 @@ CSGBrush *CSGMesh3D::_build_brush() {
 			mat = mesh->surface_get_material(i);
 		}
 
-		Vector<int> aindices = arrays[Mesh::ARRAY_INDEX];
-		if (aindices.size()) {
-			int as = vertices.size();
-			int is = aindices.size();
+		const Vector<int> aindices = arrays[Mesh::ARRAY_INDEX];
+		const int old_vertex_count = vertices.size();
+		const int added_vertex_count = aindices.is_empty() ? avertices.size() : aindices.size();
+		ERR_CONTINUE_MSG((added_vertex_count % 3) != 0, vformat("CSGMesh3D surface %d does not contain complete triangles.", i));
 
-			vertices.resize(as + is);
-			smooth.resize((as + is) / 3);
-			materials.resize((as + is) / 3);
-			surface_ids.resize((as + is) / 3);
-			uvs.resize(as + is);
-
-			Vector3 *vw = vertices.ptrw();
-			bool *sw = smooth.ptrw();
-			Vector2 *uvw = uvs.ptrw();
-			Ref<Material> *mw = materials.ptrw();
-			int *surface_ids_w = surface_ids.ptrw();
-
-			const int *ir = aindices.ptr();
-
-			for (int j = 0; j < is; j += 3) {
-				Vector3 vertex[3];
-				Vector3 normal[3];
-				Vector2 uv[3];
-
-				for (int k = 0; k < 3; k++) {
-					int idx = ir[j + k];
-					vertex[k] = vr[idx];
-					if (nr) {
-						normal[k] = nr[idx];
-					}
-					if (uvr) {
-						uv[k] = uvr[idx];
-					}
-				}
-
-				bool flat = normal[0].is_equal_approx(normal[1]) && normal[0].is_equal_approx(normal[2]);
-
-				vw[as + j + 0] = vertex[0];
-				vw[as + j + 1] = vertex[1];
-				vw[as + j + 2] = vertex[2];
-
-				uvw[as + j + 0] = uv[0];
-				uvw[as + j + 1] = uv[1];
-				uvw[as + j + 2] = uv[2];
-
-				sw[(as + j) / 3] = !flat;
-				mw[(as + j) / 3] = mat;
-				surface_ids_w[(as + j) / 3] = i;
+		if (surface_has_colors && !has_colors) {
+			colors.resize(old_vertex_count);
+			colors.fill(Color(1, 1, 1, 1));
+			has_colors = true;
+		}
+		if (has_colors) {
+			colors.resize(old_vertex_count + added_vertex_count);
+			for (int vertex = old_vertex_count; vertex < colors.size(); vertex++) {
+				colors.write[vertex] = Color(1, 1, 1, 1);
 			}
-		} else {
-			int as = vertices.size();
-			int is = avertices.size();
-
-			vertices.resize(as + is);
-			smooth.resize((as + is) / 3);
-			uvs.resize(as + is);
-			materials.resize((as + is) / 3);
-			surface_ids.resize((as + is) / 3);
-
-			Vector3 *vw = vertices.ptrw();
-			bool *sw = smooth.ptrw();
-			Vector2 *uvw = uvs.ptrw();
-			Ref<Material> *mw = materials.ptrw();
-			int *surface_ids_w = surface_ids.ptrw();
-
-			for (int j = 0; j < is; j += 3) {
-				Vector3 vertex[3];
-				Vector3 normal[3];
-				Vector2 uv[3];
-
-				for (int k = 0; k < 3; k++) {
-					vertex[k] = vr[j + k];
-					if (nr) {
-						normal[k] = nr[j + k];
-					}
-					if (uvr) {
-						uv[k] = uvr[j + k];
-					}
-				}
-
-				bool flat = normal[0].is_equal_approx(normal[1]) && normal[0].is_equal_approx(normal[2]);
-
-				vw[as + j + 0] = vertex[0];
-				vw[as + j + 1] = vertex[1];
-				vw[as + j + 2] = vertex[2];
-
-				uvw[as + j + 0] = uv[0];
-				uvw[as + j + 1] = uv[1];
-				uvw[as + j + 2] = uv[2];
-
-				sw[(as + j) / 3] = !flat;
-				mw[(as + j) / 3] = mat;
-				surface_ids_w[(as + j) / 3] = i;
+		}
+		for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+			if (surface_has_custom[custom_i] && customs[custom_i].is_empty() && old_vertex_count > 0) {
+				customs[custom_i].resize(old_vertex_count);
+				customs[custom_i].fill(Vector4());
 			}
+			if (custom_channels & (1u << custom_i)) {
+				const int previous_size = customs[custom_i].size();
+				customs[custom_i].resize(old_vertex_count + added_vertex_count);
+				for (int vertex = previous_size; vertex < customs[custom_i].size(); vertex++) {
+					customs[custom_i].write[vertex] = Vector4();
+				}
+			}
+		}
+
+		vertices.resize(old_vertex_count + added_vertex_count);
+		uvs.resize(old_vertex_count + added_vertex_count);
+		smooth.resize((old_vertex_count + added_vertex_count) / 3);
+		materials.resize((old_vertex_count + added_vertex_count) / 3);
+		surface_ids.resize((old_vertex_count + added_vertex_count) / 3);
+		for (int vertex = 0; vertex < added_vertex_count; vertex++) {
+			const int source_vertex = aindices.is_empty() ? vertex : aindices[vertex];
+			ERR_CONTINUE(source_vertex < 0 || source_vertex >= avertices.size());
+			const int destination_vertex = old_vertex_count + vertex;
+			vertices.write[destination_vertex] = vr[source_vertex];
+			uvs.write[destination_vertex] = uvr ? uvr[source_vertex] : Vector2();
+			if (has_colors && surface_has_colors) {
+				colors.write[destination_vertex] = acolors[source_vertex];
+			}
+			for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+				if (surface_has_custom[custom_i]) {
+					customs[custom_i].write[destination_vertex] = acustoms[custom_i][source_vertex];
+				}
+			}
+		}
+		for (int triangle = 0; triangle < added_vertex_count; triangle += 3) {
+			Vector3 normal[3];
+			for (int corner = 0; corner < 3; corner++) {
+				const int source_vertex = aindices.is_empty() ? triangle + corner : aindices[triangle + corner];
+				if (nr && source_vertex >= 0 && source_vertex < anormals.size()) {
+					normal[corner] = nr[source_vertex];
+				}
+			}
+			const int destination_face = (old_vertex_count + triangle) / 3;
+			smooth.write[destination_face] = !(normal[0].is_equal_approx(normal[1]) && normal[0].is_equal_approx(normal[2]));
+			materials.write[destination_face] = mat;
+			surface_ids.write[destination_face] = i;
 		}
 	}
 
@@ -2058,7 +2113,26 @@ CSGBrush *CSGMesh3D::_build_brush() {
 		return memnew(CSGBrush);
 	}
 
-	return _create_brush_from_arrays(vertices, uvs, smooth, materials, surface_ids);
+	CSGBrush *mesh_brush = _create_brush_from_arrays(vertices, uvs, smooth, materials, surface_ids);
+	mesh_brush->has_colors = has_colors;
+	mesh_brush->custom_channels = custom_channels;
+	for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+		mesh_brush->custom_formats[custom_i] = custom_formats[custom_i];
+	}
+	for (int face = 0; face < mesh_brush->faces.size(); face++) {
+		for (int corner = 0; corner < 3; corner++) {
+			const int vertex = face * 3 + corner;
+			if (has_colors) {
+				mesh_brush->faces.write[face].colors[corner] = colors[vertex];
+			}
+			for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+				if (custom_channels & (1u << custom_i)) {
+					mesh_brush->faces.write[face].customs[custom_i][corner] = customs[custom_i][vertex];
+				}
+			}
+		}
+	}
+	return mesh_brush;
 }
 
 void CSGMesh3D::_mesh_changed() {
@@ -2757,10 +2831,75 @@ static HashMap<Vector2, Vector2> _height_map_build_slope_targets(const manifold:
 	return targets;
 }
 
+static manifold::Polygons _height_map_warp_polygons(const manifold::Polygons &p_polygons, const HashMap<Vector2, Vector2> &p_targets) {
+	manifold::Polygons warped = p_polygons;
+	for (manifold::SimplePolygon &polygon : warped) {
+		for (manifold::vec2 &point : polygon) {
+			const Vector2 source(point[0], point[1]);
+			HashMap<Vector2, Vector2>::ConstIterator target = p_targets.find(source);
+			if (target) {
+				point[0] = target->value.x;
+				point[1] = target->value.y;
+			}
+		}
+	}
+	return warped;
+}
+
+static manifold::Polygons _height_map_subtract_polygons(const manifold::Polygons &p_subject, const manifold::Polygons &p_clip) {
+	using namespace Clipper2Lib;
+
+	auto to_paths = [](const manifold::Polygons &p_polygons) {
+		PathsD paths;
+		paths.reserve(p_polygons.size());
+		for (const manifold::SimplePolygon &polygon : p_polygons) {
+			PathD path;
+			path.reserve(polygon.size());
+			for (const manifold::vec2 &point : polygon) {
+				path.push_back(PointD(point[0], point[1]));
+			}
+			paths.push_back(std::move(path));
+		}
+		return paths;
+	};
+
+	ClipperD clipper(8);
+	// Keep contour vertices so top triangles share the exact same edge
+	// segmentation as the directly emitted side quads.
+	clipper.PreserveCollinear(true);
+	clipper.AddSubject(to_paths(p_subject));
+	clipper.AddClip(to_paths(p_clip));
+	PathsD solution;
+	clipper.Execute(ClipType::Difference, FillRule::NonZero, solution);
+
+	manifold::Polygons polygons;
+	polygons.reserve(solution.size());
+	for (const PathD &path : solution) {
+		if (path.size() < 3) {
+			continue;
+		}
+		manifold::SimplePolygon polygon;
+		polygon.reserve(path.size());
+		for (const PointD &point : path) {
+			polygon.push_back(manifold::vec2(point.x, point.y));
+		}
+		polygons.push_back(std::move(polygon));
+	}
+	return polygons;
+}
+
 } // namespace
 
 CSGBrush *CSGHeightMap3D::_build_brush() {
-	if (generation_mode == GENERATION_CONTOUR_LAYERS && height_map.is_valid()) {
+	if (generation_mode == GENERATION_DIRECT_CONTOUR_MESH && height_map.is_valid()) {
+		CSGBrush *direct_brush = _build_direct_contour_mesh_brush();
+		if (!direct_brush->faces.is_empty()) {
+			return direct_brush;
+		}
+		memdelete(direct_brush);
+		WARN_PRINT_ONCE("CSGHeightMap3D direct contour generation failed; falling back to contour layers.");
+	}
+	if ((generation_mode == GENERATION_CONTOUR_LAYERS || generation_mode == GENERATION_DIRECT_CONTOUR_MESH) && height_map.is_valid()) {
 		CSGBrush *contour_brush = _build_contour_layers_brush();
 		if (!contour_brush->faces.is_empty()) {
 			return contour_brush;
@@ -3392,6 +3531,242 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 	return height_map_brush;
 }
 
+CSGBrush *CSGHeightMap3D::_build_direct_contour_mesh_brush() {
+	if (height_map.is_null()) {
+		return memnew(CSGBrush);
+	}
+	Ref<Image> image = height_map->get_image();
+	if (image.is_null() || image->is_empty()) {
+		return memnew(CSGBrush);
+	}
+
+	const int image_width = image->get_width();
+	const int image_height = image->get_height();
+	const Rect2i effective_region = _get_effective_region(image_width, image_height);
+	if (image_width <= 0 || image_height <= 0 || !effective_region.has_area()) {
+		return memnew(CSGBrush);
+	}
+	const int region_width = effective_region.size.x;
+	const int region_height = effective_region.size.y;
+	const int grid_width = (region_width + sampling_step - 1) / sampling_step;
+	const int grid_depth = (region_height + sampling_step - 1) / sampling_step;
+
+	Vector<real_t> x_positions;
+	Vector<real_t> z_positions;
+	x_positions.resize(grid_width + 1);
+	z_positions.resize(grid_depth + 1);
+	for (int x = 0; x <= grid_width; x++) {
+		const int pixel_x = MIN(x * sampling_step, region_width);
+		x_positions.write[x] = -size.x * 0.5 + size.x * real_t(pixel_x) / region_width;
+	}
+	for (int z = 0; z <= grid_depth; z++) {
+		const int pixel_z = MIN(z * sampling_step, region_height);
+		z_positions.write[z] = -size.z * 0.5 + size.z * real_t(pixel_z) / region_height;
+	}
+
+	auto sample_color = [this](const Color &p_color) -> real_t {
+		switch (height_channel) {
+			case HEIGHT_CHANNEL_RED:
+				return p_color.r;
+			case HEIGHT_CHANNEL_GREEN:
+				return p_color.g;
+			case HEIGHT_CHANNEL_BLUE:
+				return p_color.b;
+			case HEIGHT_CHANNEL_ALPHA:
+				return p_color.a;
+			case HEIGHT_CHANNEL_LUMINANCE:
+			default:
+				return p_color.get_luminance();
+		}
+	};
+
+	const real_t bottom_y = -size.y * 0.5;
+	const real_t minimum_top_y = bottom_y + MIN(base_thickness, size.y);
+	const real_t maximum_top_y = size.y * 0.5;
+	const Vector<real_t> configured_heights = _build_layer_heights(minimum_top_y, maximum_top_y);
+	Vector<real_t> heights;
+	Vector<real_t> levels;
+	heights.resize(grid_width * grid_depth);
+	for (int z = 0; z < grid_depth; z++) {
+		for (int x = 0; x < grid_width; x++) {
+			const int sample_x = effective_region.position.x + MIN(x * sampling_step + sampling_step / 2, region_width - 1);
+			const int sample_z = effective_region.position.y + MIN(z * sampling_step + sampling_step / 2, region_height - 1);
+			real_t value = CLAMP(sample_color(image->get_pixel(sample_x, sample_z)), real_t(0.0), real_t(1.0));
+			if (invert_height) {
+				value = 1.0 - value;
+			}
+			real_t height;
+			if (height_steps > 1) {
+				const int layer_id = CLAMP(int(Math::round(value * (height_steps - 1))), 0, height_steps - 1);
+				height = configured_heights[layer_id];
+			} else {
+				height = Math::lerp(minimum_top_y, maximum_top_y, value);
+			}
+			heights.write[z * grid_width + x] = height;
+			levels.push_back(height);
+		}
+	}
+	levels.sort();
+	Vector<real_t> unique_levels;
+	for (real_t level : levels) {
+		if (unique_levels.is_empty() || !Math::is_equal_approx(unique_levels[unique_levels.size() - 1], level)) {
+			unique_levels.push_back(level);
+		}
+	}
+	if (unique_levels.is_empty()) {
+		return memnew(CSGBrush);
+	}
+
+	Vector<int> layer_ids;
+	Vector<manifold::Polygons> lower_polygons;
+	Vector<manifold::Polygons> upper_polygons;
+	layer_ids.resize(unique_levels.size());
+	lower_polygons.resize(unique_levels.size());
+	upper_polygons.resize(unique_levels.size());
+	for (int level_i = 0; level_i < unique_levels.size(); level_i++) {
+		int layer_id = 0;
+		if (height_steps > 1) {
+			real_t closest_distance = Math::abs(unique_levels[level_i] - configured_heights[0]);
+			for (int candidate = 1; candidate < configured_heights.size(); candidate++) {
+				const real_t distance = Math::abs(unique_levels[level_i] - configured_heights[candidate]);
+				if (distance < closest_distance) {
+					closest_distance = distance;
+					layer_id = candidate;
+				}
+			}
+		}
+		layer_ids.write[level_i] = layer_id;
+		lower_polygons.write[level_i] = _height_map_trace_contours(heights, grid_width, grid_depth, x_positions, z_positions, unique_levels[level_i]);
+		if (lower_polygons[level_i].empty()) {
+			return memnew(CSGBrush);
+		}
+		const real_t layer_slope_width = _get_layer_slope_width(layer_id);
+		if (layer_slope_width > 0.0) {
+			const HashMap<Vector2, Vector2> targets = _height_map_build_slope_targets(lower_polygons[level_i], layer_slope_width, Vector2(size.x, size.z) * 0.5);
+			upper_polygons.write[level_i] = _height_map_warp_polygons(lower_polygons[level_i], targets);
+		} else {
+			upper_polygons.write[level_i] = lower_polygons[level_i];
+		}
+	}
+
+	Vector<Vector3> vertices;
+	Vector<Vector2> uvs;
+	Vector<bool> smooth;
+	Vector<Ref<Material>> materials;
+	Vector<int> surface_ids;
+	Vector<int> face_layer_ids;
+	Vector<StringName> semantics;
+	const Ref<Material> cliff_material = side_material.is_valid() ? side_material : material;
+	const Ref<Material> base_material = bottom_material.is_valid() ? bottom_material : cliff_material;
+	const real_t border_epsilon = MAX(MIN(size.x / grid_width, size.z / grid_depth) * real_t(0.0001), real_t(CMP_EPSILON));
+
+	auto planar_uv = [&](const Vector3 &p_point) {
+		return Vector2(p_point.x / size.x + 0.5, p_point.z / size.z + 0.5);
+	};
+	auto side_uv = [&](const Vector3 &p_point, const Vector3 &p_normal) {
+		const real_t u = Math::abs(p_normal.x) > Math::abs(p_normal.z) ? p_point.z / size.z + 0.5 : p_point.x / size.x + 0.5;
+		return Vector2(u, (p_point.y - bottom_y) / size.y);
+	};
+	auto append_triangle = [&](const Vector3 &p_a, const Vector3 &p_b, const Vector3 &p_c, SurfaceType p_surface, int p_layer_id, const Ref<Material> &p_material, const StringName &p_semantic) {
+		const Vector3 normal = (p_b - p_a).cross(p_c - p_a).normalized();
+		vertices.push_back(p_a);
+		vertices.push_back(p_b);
+		vertices.push_back(p_c);
+		if (p_surface == SURFACE_TOP || p_surface == SURFACE_BOTTOM) {
+			uvs.push_back(planar_uv(p_a));
+			uvs.push_back(planar_uv(p_b));
+			uvs.push_back(planar_uv(p_c));
+		} else {
+			uvs.push_back(side_uv(p_a, normal));
+			uvs.push_back(side_uv(p_b, normal));
+			uvs.push_back(side_uv(p_c, normal));
+		}
+		smooth.push_back(false);
+		materials.push_back(p_material);
+		surface_ids.push_back(p_surface);
+		face_layer_ids.push_back(p_layer_id);
+		semantics.push_back(p_semantic);
+	};
+	auto append_triangulated_surface = [&](const manifold::Polygons &p_polygons, real_t p_height, bool p_reverse, SurfaceType p_surface, int p_layer_id, const Ref<Material> &p_material, const StringName &p_semantic) {
+		Vector<Vector2> points;
+		for (const manifold::SimplePolygon &polygon : p_polygons) {
+			for (const manifold::vec2 &point : polygon) {
+				points.push_back(Vector2(point[0], point[1]));
+			}
+		}
+		const std::vector<manifold::ivec3> triangles = manifold::Triangulate(p_polygons);
+		for (const manifold::ivec3 &triangle : triangles) {
+			const int indices[3] = { triangle.x, triangle.y, triangle.z };
+			const int a = indices[0];
+			const int b = indices[p_reverse ? 2 : 1];
+			const int c = indices[p_reverse ? 1 : 2];
+			if (a < 0 || b < 0 || c < 0 || a >= points.size() || b >= points.size() || c >= points.size()) {
+				continue;
+			}
+			append_triangle(Vector3(points[a].x, p_height, points[a].y), Vector3(points[b].x, p_height, points[b].y), Vector3(points[c].x, p_height, points[c].y), p_surface, p_layer_id, p_material, p_semantic);
+		}
+	};
+
+	for (int level_i = 0; level_i < unique_levels.size(); level_i++) {
+		const real_t lower_height = level_i == 0 ? bottom_y : unique_levels[level_i - 1];
+		const real_t upper_height = unique_levels[level_i];
+		const manifold::Polygons &lower = lower_polygons[level_i];
+		const manifold::Polygons &upper = upper_polygons[level_i];
+		const int layer_id = layer_ids[level_i];
+		if (lower.size() != upper.size()) {
+			return memnew(CSGBrush);
+		}
+
+		for (size_t polygon_i = 0; polygon_i < lower.size(); polygon_i++) {
+			if (lower[polygon_i].size() != upper[polygon_i].size()) {
+				return memnew(CSGBrush);
+			}
+			const size_t point_count = lower[polygon_i].size();
+			for (size_t point_i = 0; point_i < point_count; point_i++) {
+				const size_t next_i = (point_i + 1) % point_count;
+				const manifold::vec2 &lower_a_2d = lower[polygon_i][point_i];
+				const manifold::vec2 &lower_b_2d = lower[polygon_i][next_i];
+				const manifold::vec2 &upper_a_2d = upper[polygon_i][point_i];
+				const manifold::vec2 &upper_b_2d = upper[polygon_i][next_i];
+				const Vector3 lower_a(lower_a_2d[0], lower_height, lower_a_2d[1]);
+				const Vector3 lower_b(lower_b_2d[0], lower_height, lower_b_2d[1]);
+				const Vector3 upper_a(upper_a_2d[0], upper_height, upper_a_2d[1]);
+				const Vector3 upper_b(upper_b_2d[0], upper_height, upper_b_2d[1]);
+				const bool x_border = Math::abs(Math::abs(lower_a.x) - size.x * real_t(0.5)) <= border_epsilon && Math::abs(Math::abs(lower_b.x) - size.x * real_t(0.5)) <= border_epsilon;
+				const bool z_border = Math::abs(Math::abs(lower_a.z) - size.z * real_t(0.5)) <= border_epsilon && Math::abs(Math::abs(lower_b.z) - size.z * real_t(0.5)) <= border_epsilon;
+				const SurfaceType surface = x_border || z_border ? SURFACE_BORDER : SURFACE_CLIFF;
+				const StringName semantic = surface == SURFACE_BORDER ? SNAME("HEIGHTMAP_BORDER") : SNAME("HEIGHTMAP_CLIFF");
+				append_triangle(lower_a, lower_b, upper_b, surface, layer_id, cliff_material, semantic);
+				append_triangle(upper_b, upper_a, lower_a, surface, layer_id, cliff_material, semantic);
+			}
+		}
+
+		const manifold::Polygons exposed_top = level_i + 1 < unique_levels.size() ? _height_map_subtract_polygons(upper, lower_polygons[level_i + 1]) : upper;
+		append_triangulated_surface(exposed_top, upper_height, false, SURFACE_TOP, layer_id, material, SNAME("HEIGHTMAP_TOP"));
+	}
+
+	append_triangulated_surface(lower_polygons[0], bottom_y, true, SURFACE_BOTTOM, 0, base_material, SNAME("HEIGHTMAP_BOTTOM"));
+	if (vertices.is_empty()) {
+		return memnew(CSGBrush);
+	}
+
+	CSGBrush *height_map_brush = _create_brush_from_arrays(vertices, uvs, smooth, materials, surface_ids);
+	for (int face = 0; face < height_map_brush->faces.size(); face++) {
+		height_map_brush->faces.write[face].metadata.layer_id = face_layer_ids[face];
+		height_map_brush->faces.write[face].metadata.semantic = semantics[face];
+	}
+	Ref<CSGGeometryData> topology;
+	topology.instantiate();
+	topology->build(*height_map_brush, MAX(MIN(size.x / grid_width, size.z / grid_depth) * real_t(0.000001), real_t(0.00000001)), Math::deg_to_rad(30.0));
+	for (uint8_t boundary : topology->get_boundary_edges()) {
+		if (boundary != 0) {
+			memdelete(height_map_brush);
+			return memnew(CSGBrush);
+		}
+	}
+	return height_map_brush;
+}
+
 void CSGHeightMap3D::_height_map_changed() {
 	_make_dirty();
 	callable_mp((Node3D *)this, &Node3D::update_gizmos).call_deferred();
@@ -3440,7 +3815,7 @@ void CSGHeightMap3D::_bind_methods() {
 	ADD_GROUP("", "");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "size", PROPERTY_HINT_NONE, "suffix:m"), "set_size", "get_size");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "height_channel", PROPERTY_HINT_ENUM, "Luminance,Red,Green,Blue,Alpha"), "set_height_channel", "get_height_channel");
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "generation_mode", PROPERTY_HINT_ENUM, "Cell Grid,Contour Layers"), "set_generation_mode", "get_generation_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "generation_mode", PROPERTY_HINT_ENUM, "Cell Grid,Contour Layers,Direct Contour Mesh"), "set_generation_mode", "get_generation_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "height_steps", PROPERTY_HINT_RANGE, "0,256,1,or_greater"), "set_height_steps", "get_height_steps");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "sampling_step", PROPERTY_HINT_RANGE, "1,64,1,or_greater"), "set_sampling_step", "get_sampling_step");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "slope_width", PROPERTY_HINT_RANGE, "0,10,0.001,or_greater,suffix:m"), "set_slope_width", "get_slope_width");
@@ -3459,6 +3834,7 @@ void CSGHeightMap3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(HEIGHT_CHANNEL_ALPHA);
 	BIND_ENUM_CONSTANT(GENERATION_CELL_GRID);
 	BIND_ENUM_CONSTANT(GENERATION_CONTOUR_LAYERS);
+	BIND_ENUM_CONSTANT(GENERATION_DIRECT_CONTOUR_MESH);
 }
 
 void CSGHeightMap3D::set_height_map(const Ref<Texture2D> &p_height_map) {
@@ -3529,7 +3905,7 @@ CSGHeightMap3D::HeightChannel CSGHeightMap3D::get_height_channel() const {
 }
 
 void CSGHeightMap3D::set_generation_mode(GenerationMode p_mode) {
-	ERR_FAIL_INDEX(int(p_mode), 2);
+	ERR_FAIL_INDEX(int(p_mode), 3);
 	if (generation_mode == p_mode) {
 		return;
 	}

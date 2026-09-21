@@ -25,5 +25,6 @@
 		<constant name="SOURCE_BOUNDARY_EDGE" value="10" enum="Source">One for vertices incident to a boundary edge.</constant>
 		<constant name="SOURCE_SHARP_EDGE" value="11" enum="Source">One for vertices incident to a sharp edge.</constant>
 		<constant name="SOURCE_LAYER_ID" value="12" enum="Source">Semantic layer ID. For [CSGHeightMap3D], this is the quantized height level.</constant>
+		<constant name="SOURCE_KEEP_EXISTING" value="13" enum="Source">Keeps the current value of this vertex color or custom-channel component. Scale, bias, and clamping are applied after reading it.</constant>
 	</constants>
 </class>

@@ -4,9 +4,9 @@
 		A closed, stepped CSG solid generated from a height map texture.
 	</brief_description>
 	<description>
-		Generates one closed CSG solid from [member height_map]. [constant GENERATION_CONTOUR_LAYERS] builds cumulative height contours, extrudes vertical slabs between adjacent quantized levels with a tiny robust Boolean overlap at their joins, and performs one batched union instead of generating geometry per pixel. [constant GENERATION_CELL_GRID] is retained as a detailed fallback and comparison mode.
+		Generates one closed CSG solid from [member height_map]. [constant GENERATION_CONTOUR_LAYERS] builds cumulative height contours, extrudes vertical slabs between adjacent quantized levels with a tiny robust Boolean overlap at their joins, and performs one batched union instead of generating geometry per pixel. [constant GENERATION_DIRECT_CONTOUR_MESH] emits top, cliff, border, and bottom triangles directly from the contours, avoiding the internal Boolean union. [constant GENERATION_CELL_GRID] is retained as a detailed fallback and comparison mode.
 		The resulting geometry participates in the regular CSG Boolean, bevel, topology, and modifier pipeline. Faces are tagged with [code]HEIGHTMAP_TOP[/code], [code]HEIGHTMAP_CLIFF[/code], [code]HEIGHTMAP_BORDER[/code], or [code]HEIGHTMAP_BOTTOM[/code] semantics. Surface IDs 0 through 3 represent the same categories.
-		In contour mode, [member slope_width] shifts the upper boundary of each height step toward the solid. This creates inexpensive sloped cliffs without running the general-purpose bevel operation.
+		In contour-based modes, [member slope_width] shifts the upper boundary of each height step toward the solid. This creates inexpensive sloped cliffs without running the general-purpose bevel operation.
 		Use [member layer_settings] to give individual quantized layers different relative heights and slope widths. Array index 0 is layer 0, index 1 is layer 1, and so on. Layer IDs are retained as face metadata through Boolean operations and can be written to a shader custom channel with [constant CSGModifierValue.SOURCE_LAYER_ID].
 		Enable [member region_enabled] and set [member region_rect] to generate only a pixel region of a large source texture. This allows multiple nodes to share one height map while each builds a small chunk.
 		[b]Note:[/b] Large regions can still produce many top triangles. Increase [member sampling_step] or use [member height_steps] to reduce detail while editing.
@@ -22,7 +22,7 @@
 			Material used by the bottom. Falls back to [member side_material], then [member material].
 		</member>
 		<member name="generation_mode" type="int" setter="set_generation_mode" getter="get_generation_mode" enum="CSGHeightMap3D.GenerationMode" default="1">
-			Geometry generation strategy. Contour layers are generally much faster for quantized height maps with large same-height regions.
+			Geometry generation strategy. Direct contour mesh is the fastest option when its contour topology is supported. It automatically falls back to contour layers if the generated surface contains open edges.
 		</member>
 		<member name="height_channel" type="int" setter="set_height_channel" getter="get_height_channel" enum="CSGHeightMap3D.HeightChannel" default="0">
 			Color channel sampled from [member height_map].
@@ -69,5 +69,6 @@
 		<constant name="HEIGHT_CHANNEL_ALPHA" value="4" enum="HeightChannel">Uses the alpha channel.</constant>
 		<constant name="GENERATION_CELL_GRID" value="0" enum="GenerationMode">Builds a conforming top grid and visible walls directly from sampled cells.</constant>
 		<constant name="GENERATION_CONTOUR_LAYERS" value="1" enum="GenerationMode">Traces cumulative masks for unique height levels, extrudes non-overlapping slabs between adjacent levels, then combines and simplifies them.</constant>
+		<constant name="GENERATION_DIRECT_CONTOUR_MESH" value="2" enum="GenerationMode">Directly triangulates exposed tops and connects contour boundaries with cliff or slope faces. Avoids the internal Manifold Boolean union and falls back to contour layers when validation detects open geometry.</constant>
 	</constants>
 </class>

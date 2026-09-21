@@ -24,7 +24,7 @@ void CSGModifierValue::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_max_value", "value"), &CSGModifierValue::set_max_value);
 	ClassDB::bind_method(D_METHOD("get_max_value"), &CSGModifierValue::get_max_value);
 
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "source", PROPERTY_HINT_ENUM, "Constant,Brush ID,Face ID,Source Face ID,Surface ID,Material ID,Face Generation,Triangle Edge Distance 0,Triangle Edge Distance 1,Triangle Edge Distance 2,Boundary Edge,Sharp Edge,Layer ID", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_UPDATE_ALL_IF_MODIFIED), "set_source", "get_source");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "source", PROPERTY_HINT_ENUM, "Constant,Brush ID,Face ID,Source Face ID,Surface ID,Material ID,Face Generation,Triangle Edge Distance 0,Triangle Edge Distance 1,Triangle Edge Distance 2,Boundary Edge,Sharp Edge,Layer ID,Keep Existing", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_UPDATE_ALL_IF_MODIFIED), "set_source", "get_source");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "constant_value"), "set_constant_value", "get_constant_value");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "scale"), "set_scale", "get_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "bias"), "set_bias", "get_bias");
@@ -45,6 +45,7 @@ void CSGModifierValue::_bind_methods() {
 	BIND_ENUM_CONSTANT(SOURCE_BOUNDARY_EDGE);
 	BIND_ENUM_CONSTANT(SOURCE_SHARP_EDGE);
 	BIND_ENUM_CONSTANT(SOURCE_LAYER_ID);
+	BIND_ENUM_CONSTANT(SOURCE_KEEP_EXISTING);
 }
 
 void CSGModifierValue::_validate_property(PropertyInfo &p_property) const {
@@ -96,7 +97,7 @@ real_t CSGModifierValue::get_max_value() const {
 }
 
 void CSGModifierValue::set_source(Source p_source) {
-	ERR_FAIL_INDEX(int(p_source), int(SOURCE_LAYER_ID) + 1);
+	ERR_FAIL_INDEX(int(p_source), int(SOURCE_KEEP_EXISTING) + 1);
 	if (source == p_source) {
 		return;
 	}
@@ -248,7 +249,7 @@ Ref<CSGModifierValue> CSGModifierChannelOverride::get_component(int p_component)
 }
 
 void CSGAttributeModifier::_bind_methods() {
-	static const char *source_hint = "Constant,Brush ID,Face ID,Source Face ID,Surface ID,Material ID,Face Generation,Triangle Edge Distance 0,Triangle Edge Distance 1,Triangle Edge Distance 2,Boundary Edge,Sharp Edge,Layer ID";
+	static const char *source_hint = "Constant,Brush ID,Face ID,Source Face ID,Surface ID,Material ID,Face Generation,Triangle Edge Distance 0,Triangle Edge Distance 1,Triangle Edge Distance 2,Boundary Edge,Sharp Edge,Layer ID,Keep Existing";
 	ClassDB::bind_method(D_METHOD("set_vertex_color_override_enabled", "enabled"), &CSGAttributeModifier::set_vertex_color_override_enabled);
 	ClassDB::bind_method(D_METHOD("is_vertex_color_override_enabled"), &CSGAttributeModifier::is_vertex_color_override_enabled);
 	ClassDB::bind_method(D_METHOD("set_vertex_color_override", "override"), &CSGAttributeModifier::set_vertex_color_override);
@@ -426,7 +427,7 @@ static real_t _triangle_edge_distance(const CSGBrush::Face &p_face, int p_face_i
 	return Geometry3D::get_closest_point_to_segment(p_face.vertices[p_corner], a, b).distance_to(p_face.vertices[p_corner]);
 }
 
-static real_t _evaluate_value(const Ref<CSGModifierValue> &p_value, const CSGBrush::Face &p_face, int p_face_index, int p_corner, const PackedInt32Array &p_face_edges, const PackedByteArray &p_boundary_edges, const PackedByteArray &p_sharp_edges, real_t p_ignored_edge_distance) {
+static real_t _evaluate_value(const Ref<CSGModifierValue> &p_value, real_t p_existing_value, const CSGBrush::Face &p_face, int p_face_index, int p_corner, const PackedInt32Array &p_face_edges, const PackedByteArray &p_boundary_edges, const PackedByteArray &p_sharp_edges, real_t p_ignored_edge_distance) {
 	if (p_value.is_null()) {
 		return 0.0;
 	}
@@ -434,6 +435,9 @@ static real_t _evaluate_value(const Ref<CSGModifierValue> &p_value, const CSGBru
 	switch (p_value->get_source()) {
 		case CSGModifierValue::SOURCE_CONSTANT:
 			value = p_value->get_constant_value();
+			break;
+		case CSGModifierValue::SOURCE_KEEP_EXISTING:
+			value = p_existing_value;
 			break;
 		case CSGModifierValue::SOURCE_BRUSH_ID:
 			value = p_face.metadata.brush_id;
@@ -509,9 +513,10 @@ void CSGAttributeModifier::process(const Ref<CSGModifierContext> &p_context) {
 				if (!channel_enabled[channel] || channels[channel].is_null()) {
 					continue;
 				}
+				const Vector4 existing = channel == 0 ? Vector4(face.colors[corner].r, face.colors[corner].g, face.colors[corner].b, face.colors[corner].a) : face.customs[channel - 1][corner];
 				Vector4 result;
 				for (int component = 0; component < 4; component++) {
-					result[component] = _evaluate_value(channels[channel]->get_component(component), face, face_i, corner, face_edges, boundary_edges, sharp_edges, ignored_edge_distance);
+					result[component] = _evaluate_value(channels[channel]->get_component(component), existing[component], face, face_i, corner, face_edges, boundary_edges, sharp_edges, ignored_edge_distance);
 				}
 				if (channel == 0) {
 					face.colors[corner] = Color(result.x, result.y, result.z, result.w);

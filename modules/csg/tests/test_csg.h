@@ -44,6 +44,76 @@
 
 namespace TestCSG {
 
+TEST_CASE("[SceneTree][CSG] CSGMesh3D preserves vertex color and custom channels") {
+	Ref<ArrayMesh> source_mesh;
+	source_mesh.instantiate();
+	Array arrays;
+	arrays.resize(Mesh::ARRAY_MAX);
+	arrays[Mesh::ARRAY_VERTEX] = PackedVector3Array({
+			Vector3(0, 0, 0),
+			Vector3(1, 0, 0),
+			Vector3(0, 1, 0),
+			Vector3(0, 0, 1),
+	});
+	arrays[Mesh::ARRAY_INDEX] = PackedInt32Array({
+			0,
+			1,
+			2,
+			0,
+			3,
+			1,
+			0,
+			2,
+			3,
+			1,
+			3,
+			2,
+	});
+	arrays[Mesh::ARRAY_COLOR] = PackedColorArray({
+			Color(1, 0, 0, 1),
+			Color(0, 1, 0, 1),
+			Color(0, 0, 1, 1),
+			Color(1, 1, 0, 1),
+	});
+	arrays[Mesh::ARRAY_CUSTOM0] = PackedFloat32Array({
+			1,
+			2,
+			3,
+			4,
+			5,
+			6,
+			7,
+			8,
+			9,
+			10,
+			11,
+			12,
+			13,
+			14,
+			15,
+			16,
+	});
+	const uint64_t format = uint64_t(Mesh::ARRAY_CUSTOM_RGBA_FLOAT) << Mesh::ARRAY_FORMAT_CUSTOM0_SHIFT;
+	source_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(), format);
+
+	CSGMesh3D *csg_mesh = memnew(CSGMesh3D);
+	csg_mesh->set_mesh(source_mesh);
+	SceneTree::get_singleton()->get_root()->add_child(csg_mesh);
+	csg_mesh->update_shape();
+	Ref<ArrayMesh> baked_mesh = csg_mesh->bake_static_mesh();
+	REQUIRE(baked_mesh.is_valid());
+	REQUIRE(baked_mesh->get_surface_count() == 1);
+	const Array baked_arrays = baked_mesh->surface_get_arrays(0);
+	const PackedColorArray baked_colors = baked_arrays[Mesh::ARRAY_COLOR];
+	const PackedFloat32Array baked_custom = baked_arrays[Mesh::ARRAY_CUSTOM0];
+	CHECK_FALSE(baked_colors.is_empty());
+	CHECK_FALSE(baked_custom.is_empty());
+	CHECK(baked_custom.size() == baked_colors.size() * 4);
+
+	SceneTree::get_singleton()->get_root()->remove_child(csg_mesh);
+	memdelete(csg_mesh);
+}
+
 TEST_CASE("[SceneTree][CSG] CSGHeightMap3D builds one closed stepped solid") {
 	Ref<Image> image = memnew(Image(2, 1, false, Image::FORMAT_RGBA8));
 	image->set_pixel(0, 0, Color(0, 0, 0, 1));
@@ -90,6 +160,13 @@ TEST_CASE("[SceneTree][CSG] CSGHeightMap3D builds one closed stepped solid") {
 	CHECK(found_bottom);
 	height_map->set_generation_mode(CSGHeightMap3D::GENERATION_CELL_GRID);
 	CHECK_FALSE(height_map->get_brush_faces().is_empty());
+	height_map->set_generation_mode(CSGHeightMap3D::GENERATION_DIRECT_CONTOUR_MESH);
+	CHECK_FALSE(height_map->get_brush_faces().is_empty());
+	geometry = height_map->get_geometry_data();
+	REQUIRE(geometry.is_valid());
+	for (uint8_t boundary : geometry->get_boundary_edges()) {
+		CHECK(boundary == 0);
+	}
 
 	SceneTree::get_singleton()->get_root()->remove_child(height_map);
 	memdelete(height_map);
@@ -358,6 +435,12 @@ TEST_CASE("[CSG] Semantic geometry data and native attribute modifier") {
 	custom->get_red()->set_source(CSGModifierValue::SOURCE_TRIANGLE_EDGE_DISTANCE_0);
 	custom->get_green()->set_source(CSGModifierValue::SOURCE_TRIANGLE_EDGE_DISTANCE_1);
 	custom->get_blue()->set_source(CSGModifierValue::SOURCE_TRIANGLE_EDGE_DISTANCE_2);
+	custom->get_alpha()->set_source(CSGModifierValue::SOURCE_KEEP_EXISTING);
+	for (CSGBrush::Face &face : brush.faces) {
+		for (int corner = 0; corner < 3; corner++) {
+			face.customs[3][corner].w = 42.0;
+		}
+	}
 	modifier->process(context);
 	// The diagonal shared by the two coplanar triangles is opposite corner 1.
 	// Its green component must be neutral instead of drawing the triangulation.
@@ -367,6 +450,7 @@ TEST_CASE("[CSG] Semantic geometry data and native attribute modifier") {
 	CHECK(brush.faces[0].customs[3][0].x == doctest::Approx(1.0));
 	CHECK(brush.faces[0].customs[3][1].x == doctest::Approx(0.0));
 	CHECK(brush.faces[0].customs[3][2].z == doctest::Approx(1.0));
+	CHECK(brush.faces[0].customs[3][0].w == doctest::Approx(42.0));
 
 	brush.faces.write[0].metadata.generation = CSGBrush::FACE_BEVEL_GENERATED;
 	Ref<CSGFaceSemanticModifier> semantic_modifier;

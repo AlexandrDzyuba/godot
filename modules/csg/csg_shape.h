@@ -346,6 +346,7 @@ public:
 	enum GenerationMode {
 		GENERATION_CELL_GRID,
 		GENERATION_CONTOUR_LAYERS,
+		GENERATION_DIRECT_CONTOUR_MESH,
 	};
 
 private:
@@ -359,6 +360,7 @@ private:
 	virtual CSGBrush *_build_brush() override;
 	CSGBrush *_build_cell_grid_brush();
 	CSGBrush *_build_contour_layers_brush();
+	CSGBrush *_build_direct_contour_mesh_brush();
 	Rect2i _get_effective_region(int p_image_width, int p_image_height) const;
 	Vector<real_t> _build_layer_heights(real_t p_minimum_top, real_t p_maximum_top) const;
 	real_t _get_layer_slope_width(int p_layer) const;

@@ -4,7 +4,7 @@
 		Writes CSG semantic data into vertex color and custom mesh channels.
 	</brief_description>
 	<description>
-		A native, single-pass CSG modifier. Vertex color and each of CUSTOM0 through CUSTOM3 can be enabled independently and configured with a [CSGModifierChannelOverride]. Values can come from stable face/source IDs, brush, surface or material IDs, generated-face tags, real mesh edge distances, or topology edge flags. An edge is treated as real when it is a mesh boundary or its face angle reaches [member topology_sharp_angle]; coplanar triangulation edges are ignored.
+		A native, single-pass CSG modifier. Vertex color and each of CUSTOM0 through CUSTOM3 can be enabled independently and configured with a [CSGModifierChannelOverride]. Values can come from stable face/source IDs, brush, surface or material IDs, generated-face tags, real mesh edge distances, topology edge flags, or the component's existing value. Keeping an existing component allows selected data to survive mesh baking and re-import while the other components are recalculated. An edge is treated as real when it is a mesh boundary or its face angle reaches [member topology_sharp_angle]; coplanar triangulation edges are ignored.
 	</description>
 	<methods>
 		<method name="get_channel_source" qualifiers="const">
