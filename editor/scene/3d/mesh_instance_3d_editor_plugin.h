@@ -38,10 +38,12 @@ class AcceptDialog;
 class AspectRatioContainer;
 class ConfirmationDialog;
 class MenuButton;
+class PopupMenu;
 class SpinBox;
 
 class MeshInstance3DEditor : public Control {
 	GDCLASS(MeshInstance3DEditor, Control);
+	static MeshInstance3DEditor *singleton;
 
 	enum Menu {
 		MENU_OPTION_CREATE_COLLISION_SHAPE,
@@ -119,8 +121,11 @@ protected:
 	void _notification(int p_what);
 
 public:
+	static MeshInstance3DEditor *get_singleton() { return singleton; }
+	PopupMenu *get_options_menu() const;
 	void edit(MeshInstance3D *p_mesh);
 	MeshInstance3DEditor();
+	~MeshInstance3DEditor();
 };
 
 class MeshInstance3DEditorPlugin : public EditorPlugin {

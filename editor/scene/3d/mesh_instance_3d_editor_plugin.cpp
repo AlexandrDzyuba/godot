@@ -55,6 +55,8 @@
 #include "scene/resources/3d/primitive_meshes.h"
 #include "scene/resources/3d/sphere_shape_3d.h"
 
+MeshInstance3DEditor *MeshInstance3DEditor::singleton = nullptr;
+
 void MeshInstance3DEditor::_node_removed(Node *p_node) {
 	if (p_node == node) {
 		node = nullptr;
@@ -794,7 +796,12 @@ void MeshInstance3DEditor::_notification(int p_what) {
 	}
 }
 
+PopupMenu *MeshInstance3DEditor::get_options_menu() const {
+	return options->get_popup();
+}
+
 MeshInstance3DEditor::MeshInstance3DEditor() {
+	singleton = this;
 	options = memnew(MenuButton);
 	options->set_text(TTR("Mesh"));
 	options->set_switch_on_hover(true);
@@ -931,6 +938,12 @@ MeshInstance3DEditor::MeshInstance3DEditor() {
 
 	add_child(navigation_mesh_dialog);
 	navigation_mesh_dialog->connect(SceneStringName(confirmed), callable_mp(this, &MeshInstance3DEditor::_create_navigation_mesh));
+}
+
+MeshInstance3DEditor::~MeshInstance3DEditor() {
+	if (singleton == this) {
+		singleton = nullptr;
+	}
 }
 
 void MeshInstance3DEditorPlugin::edit(Object *p_object) {

@@ -38,11 +38,14 @@
 #include "csg_shape.h"
 #include "csg_split_settings.h"
 #include "csg_topology_settings.h"
+#include "mesh_split_settings.h"
+#include "mesh_splitter.h"
 
 #include "core/object/class_db.h"
 
 #ifdef TOOLS_ENABLED
 #include "editor/csg_gizmos.h"
+#include "editor/mesh_splitter_editor_plugin.h"
 #endif
 
 void initialize_csg_module(ModuleInitializationLevel p_level) {
@@ -58,6 +61,8 @@ void initialize_csg_module(ModuleInitializationLevel p_level) {
 		GDREGISTER_CLASS(CSGBevelSettings);
 		GDREGISTER_CLASS(CSGSplitSettings);
 		GDREGISTER_CLASS(CSGTopologySettings);
+		GDREGISTER_CLASS(MeshSplitSettings);
+		GDREGISTER_CLASS(MeshSplitter);
 		GDREGISTER_ABSTRACT_CLASS(CSGShape3D);
 		GDREGISTER_ABSTRACT_CLASS(CSGPrimitive3D);
 		GDREGISTER_CLASS(CSGCombiner3D);
@@ -76,6 +81,7 @@ void initialize_csg_module(ModuleInitializationLevel p_level) {
 #ifdef TOOLS_ENABLED
 	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
 		EditorPlugins::add_by_type<EditorPluginCSG>();
+		EditorPlugins::add_by_type<EditorPluginMeshSplitter>();
 	}
 #endif
 }

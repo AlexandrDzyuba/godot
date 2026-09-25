@@ -35,10 +35,12 @@
 #include "../csg_geometry_data.h"
 #include "../csg_shape.h"
 #include "../csg_topology_settings.h"
+#include "../mesh_splitter.h"
 
 #include "core/io/image.h"
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
+#include "scene/resources/3d/primitive_meshes.h"
 #include "scene/resources/image_texture.h"
 #include "tests/test_macros.h"
 
@@ -251,6 +253,108 @@ TEST_CASE("[SceneTree][CSG] random splitting is deterministic for a seed") {
 
 	SceneTree::get_singleton()->get_root()->remove_child(box);
 	memdelete(box);
+}
+
+TEST_CASE("[CSG][MeshSplitter] open triangle soup splits and preserves custom channels") {
+	Ref<ArrayMesh> source;
+	source.instantiate();
+	Array arrays;
+	arrays.resize(Mesh::ARRAY_MAX);
+	arrays[Mesh::ARRAY_VERTEX] = PackedVector3Array({
+			Vector3(-1, 0, -1),
+			Vector3(1, 0, -1),
+			Vector3(1, 0, 1),
+			Vector3(-1, 0, -1),
+			Vector3(1, 0, 1),
+			Vector3(-1, 0, 1),
+	});
+	arrays[Mesh::ARRAY_NORMAL] = PackedVector3Array({
+			Vector3(0, 1, 0),
+			Vector3(0, 1, 0),
+			Vector3(0, 1, 0),
+			Vector3(0, 1, 0),
+			Vector3(0, 1, 0),
+			Vector3(0, 1, 0),
+	});
+	arrays[Mesh::ARRAY_TEX_UV] = PackedVector2Array({
+			Vector2(0, 0),
+			Vector2(1, 0),
+			Vector2(1, 1),
+			Vector2(0, 0),
+			Vector2(1, 1),
+			Vector2(0, 1),
+	});
+	PackedFloat32Array custom;
+	custom.resize(24);
+	for (int vertex = 0; vertex < 6; vertex++) {
+		custom.set(vertex * 4, float(vertex));
+		custom.set(vertex * 4 + 3, 1.0f);
+	}
+	arrays[Mesh::ARRAY_CUSTOM0] = custom;
+	const uint64_t custom_format = uint64_t(Mesh::ARRAY_CUSTOM_RGBA_FLOAT) << Mesh::ARRAY_FORMAT_CUSTOM0_SHIFT;
+	source->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(), custom_format);
+
+	Ref<MeshSplitSettings> settings;
+	settings.instantiate();
+	settings->set_iterations(1);
+	settings->set_cap_mode(MeshSplitSettings::CAP_NONE);
+	Ref<MeshSplitter> splitter;
+	splitter.instantiate();
+	TypedArray<ArrayMesh> pieces = splitter->split_mesh(source, settings);
+	REQUIRE(pieces.size() == 2);
+	for (int piece_i = 0; piece_i < pieces.size(); piece_i++) {
+		Ref<ArrayMesh> piece = pieces[piece_i];
+		REQUIRE(piece.is_valid());
+		CHECK(piece->has_meta(SNAME("split_center")));
+		REQUIRE(piece->get_surface_count() == 1);
+		const Array piece_arrays = piece->surface_get_arrays(0);
+		const PackedVector3Array piece_vertices = piece_arrays[Mesh::ARRAY_VERTEX];
+		const PackedFloat32Array piece_custom = piece_arrays[Mesh::ARRAY_CUSTOM0];
+		CHECK(!piece_vertices.is_empty());
+		CHECK(piece_custom.size() == piece_vertices.size() * 4);
+	}
+}
+
+TEST_CASE("[CSG][MeshSplitter] generated cap winding agrees with cap normals") {
+	Ref<BoxMesh> source_mesh;
+	source_mesh.instantiate();
+
+	Ref<MeshSplitSettings> settings;
+	settings.instantiate();
+	settings->set_iterations(1);
+	settings->set_decompose_islands(false);
+	settings->set_cap_mode(MeshSplitSettings::CAP_CLOSED_LOOPS);
+
+	Ref<MeshSplitter> splitter;
+	splitter.instantiate();
+	const TypedArray<ArrayMesh> pieces = splitter->split_mesh(source_mesh, settings);
+	REQUIRE(pieces.size() == 2);
+
+	bool found_caps = false;
+	for (int piece_index = 0; piece_index < pieces.size(); piece_index++) {
+		Ref<ArrayMesh> piece = pieces[piece_index];
+		REQUIRE(piece.is_valid());
+		for (int surface = 0; surface < piece->get_surface_count(); surface++) {
+			if (piece->surface_get_name(surface) != "SplitCaps") {
+				continue;
+			}
+
+			found_caps = true;
+			const Array arrays = piece->surface_get_arrays(surface);
+			const PackedVector3Array vertices = arrays[Mesh::ARRAY_VERTEX];
+			const PackedVector3Array normals = arrays[Mesh::ARRAY_NORMAL];
+			REQUIRE(vertices.size() == normals.size());
+			REQUIRE(vertices.size() % 3 == 0);
+
+			for (int vertex = 0; vertex < vertices.size(); vertex += 3) {
+				const Vector3 winding_normal = -(vertices[vertex + 1] - vertices[vertex]).cross(vertices[vertex + 2] - vertices[vertex]).normalized();
+				CHECK(winding_normal.dot(normals[vertex]) > 0.999);
+				CHECK(normals[vertex].dot(normals[vertex + 1]) > 0.999);
+				CHECK(normals[vertex].dot(normals[vertex + 2]) > 0.999);
+			}
+		}
+	}
+	CHECK(found_caps);
 }
 
 TEST_CASE("[SceneTree][CSG] CSGHeightMap3D builds one closed stepped solid") {

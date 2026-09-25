@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MeshSplitSettings" inherits="Resource" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Configures triangle-soup mesh splitting.
+	</brief_description>
+	<description>
+		Controls recursive plane selection, tolerant cut-contour construction, generated cap attributes, output pivots, and editor output created by [MeshSplitter].
+		The [b]Mesh &gt; Split Mesh...[/b] editor dialog keeps the most recently used settings for the editor session. Settings can also be loaded from or saved to a reusable [MeshSplitSettings] resource.
+	</description>
+	<members>
+		<member name="cap_color" type="Color" setter="set_cap_color" getter="get_cap_color" default="Color(1, 1, 1, 1)">
+			Vertex color written to newly generated cap surfaces.
+		</member>
+		<member name="cap_custom0" type="Vector4" setter="set_cap_custom" getter="get_cap_custom" default="Vector4(0, 0, 0, 0)">
+			CUSTOM0 value written to cap vertices when [member cap_custom0_enabled] is enabled.
+		</member>
+		<member name="cap_custom0_enabled" type="bool" setter="set_cap_custom_enabled" getter="is_cap_custom_enabled" default="false" />
+		<member name="cap_custom1" type="Vector4" setter="set_cap_custom" getter="get_cap_custom" default="Vector4(0, 0, 0, 0)" />
+		<member name="cap_custom1_enabled" type="bool" setter="set_cap_custom_enabled" getter="is_cap_custom_enabled" default="false" />
+		<member name="cap_custom2" type="Vector4" setter="set_cap_custom" getter="get_cap_custom" default="Vector4(0, 0, 0, 0)" />
+		<member name="cap_custom2_enabled" type="bool" setter="set_cap_custom_enabled" getter="is_cap_custom_enabled" default="false" />
+		<member name="cap_custom3" type="Vector4" setter="set_cap_custom" getter="get_cap_custom" default="Vector4(0, 0, 0, 0)" />
+		<member name="cap_custom3_enabled" type="bool" setter="set_cap_custom_enabled" getter="is_cap_custom_enabled" default="false" />
+		<member name="cap_material" type="Material" setter="set_cap_material" getter="get_cap_material">
+			Material assigned to the separate [code]SplitCaps[/code] surface.
+		</member>
+		<member name="cap_mode" type="int" setter="set_cap_mode" getter="get_cap_mode" enum="MeshSplitSettings.CapMode" default="2">
+			Controls whether and how intersection segment chains become cap polygons.
+		</member>
+		<member name="cap_uv_scale" type="float" setter="set_cap_uv_scale" getter="get_cap_uv_scale" default="1.0">
+			Scale of planar UV coordinates on generated caps.
+		</member>
+		<member name="decompose_islands" type="bool" setter="set_decompose_islands" getter="is_decomposing_islands" default="true">
+			Returns disconnected triangle islands as separate output meshes, up to [member max_pieces]. Vertices are matched with [member weld_tolerance].
+		</member>
+		<member name="iterations" type="int" setter="set_iterations" getter="get_iterations" default="3">
+			Recursive split depth. Each iteration can split every existing part once.
+		</member>
+		<member name="max_pieces" type="int" setter="set_max_pieces" getter="get_max_pieces" default="256">
+			Hard limit for generated pieces.
+		</member>
+		<member name="min_triangles" type="int" setter="set_min_triangles" getter="get_min_triangles" default="1">
+			Rejects a plane when either side contains fewer triangles after clipping.
+		</member>
+		<member name="mode" type="int" setter="set_mode" getter="get_mode" enum="MeshSplitSettings.Mode" default="0" />
+		<member name="offset_jitter" type="float" setter="set_offset_jitter" getter="get_offset_jitter" default="0.35" />
+		<member name="output" type="int" setter="set_output" getter="get_output" enum="MeshSplitSettings.Output" default="0">
+			Output hierarchy used by the editor's [b]Split Mesh[/b] command.
+		</member>
+		<member name="part_center" type="int" setter="set_part_center" getter="get_part_center" enum="MeshSplitSettings.PartCenter" default="1">
+			Pivot written into [code]split_center[/code] metadata and subtracted from generated vertices.
+		</member>
+		<member name="retry_count" type="int" setter="set_retry_count" getter="get_retry_count" default="8" />
+		<member name="rotation_jitter" type="float" setter="set_rotation_jitter" getter="get_rotation_jitter" default="0.610865" />
+		<member name="seed" type="int" setter="set_seed" getter="get_seed" default="1" />
+		<member name="weld_tolerance" type="float" setter="set_weld_tolerance" getter="get_weld_tolerance" default="0.0001">
+			Position tolerance used to join cut segments into contours.
+		</member>
+	</members>
+	<constants>
+		<constant name="MODE_BALANCED_GRID" value="0" enum="Mode" />
+		<constant name="MODE_RANDOM_PLANES" value="1" enum="Mode" />
+		<constant name="CAP_NONE" value="0" enum="CapMode" />
+		<constant name="CAP_CLOSED_LOOPS" value="1" enum="CapMode">
+			Caps only segment chains that return to their starting point.
+		</constant>
+		<constant name="CAP_REPAIR_OPEN_LOOPS" value="2" enum="CapMode">
+			Also closes open chains by directly connecting their endpoints.
+		</constant>
+		<constant name="PART_CENTER_ORIGINAL" value="0" enum="PartCenter" />
+		<constant name="PART_CENTER_AABB" value="1" enum="PartCenter" />
+		<constant name="PART_CENTER_TOP" value="2" enum="PartCenter" />
+		<constant name="PART_CENTER_BOTTOM" value="3" enum="PartCenter" />
+		<constant name="PART_CENTER_X_FRONT" value="4" enum="PartCenter" />
+		<constant name="PART_CENTER_Y_FRONT" value="5" enum="PartCenter" />
+		<constant name="PART_CENTER_Z_FRONT" value="6" enum="PartCenter" />
+		<constant name="PART_CENTER_X_BACK" value="7" enum="PartCenter" />
+		<constant name="PART_CENTER_Y_BACK" value="8" enum="PartCenter" />
+		<constant name="PART_CENTER_Z_BACK" value="9" enum="PartCenter" />
+		<constant name="OUTPUT_MESHES" value="0" enum="Output" />
+		<constant name="OUTPUT_RIGID_BODIES" value="1" enum="Output" />
+	</constants>
+</class>

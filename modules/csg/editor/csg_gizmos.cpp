@@ -72,8 +72,10 @@ void CSGShapeEditor::_node_removed(Node *p_node) {
 }
 
 void CSGShapeEditor::edit(CSGShape3D *p_csg_shape) {
-	if (node != p_csg_shape && split_dialog->is_visible()) {
-		split_dialog->hide();
+	if (node != p_csg_shape) {
+		if (split_dialog->is_visible()) {
+			split_dialog->hide();
+		}
 		split_inspector->edit(nullptr);
 		split_dialog_settings.unref();
 	}

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="MeshSplitter" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Splits triangle meshes without requiring manifold geometry.
+	</brief_description>
+	<description>
+		Clips triangle surfaces directly against recursively generated planes. Source materials, surface names, normals, tangents, colors, UV, UV2, and CUSTOM0 through CUSTOM3 are preserved. Intersected attributes are linearly interpolated.
+		Unlike CSG Boolean processing, this class accepts open triangle soups. Cut caps are generated when intersection segments form usable contours according to [member MeshSplitSettings.cap_mode]. Skinning, blend shapes, and non-triangle surfaces are not currently copied.
+	</description>
+	<methods>
+		<method name="split_mesh" qualifiers="const">
+			<return type="Array[ArrayMesh]" />
+			<param index="0" name="mesh" type="Mesh" />
+			<param index="1" name="settings" type="MeshSplitSettings" default="null" />
+			<description>
+				Recursively splits [param mesh]. Every returned mesh stores its original local-space pivot in [code]split_center[/code] metadata. Adding this position to its vertices reconstructs the source placement.
+			</description>
+		</method>
+	</methods>
+</class>

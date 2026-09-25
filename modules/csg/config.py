@@ -30,6 +30,8 @@ def get_doc_classes():
         "CSGSphere3D",
         "CSGTopologySettings",
         "CSGTorus3D",
+        "MeshSplitSettings",
+        "MeshSplitter",
     ]
 
 
