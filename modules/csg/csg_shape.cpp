@@ -30,11 +30,13 @@
 
 #include "csg_shape.h"
 
+#include "csg_attribute_modifier.h"
 #include "csg_native_bevel.h"
 
 #include "core/config/engine.h"
 #include "core/io/image.h"
 #include "core/math/geometry_2d.h"
+#include "core/math/random_pcg.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "scene/main/scene_tree.h"
@@ -799,21 +801,222 @@ static bool _process_topology(const manifold::Manifold &p_source, const Ref<CSGT
 
 } // namespace
 
-void CSGShape3D::_process_modifiers(CSGBrush *p_brush) {
-	if (!p_brush || modifiers.is_empty()) {
+static void _process_modifier_list(CSGBrush *p_brush, const TypedArray<CSGModifier> &p_modifiers) {
+	if (!p_brush || p_modifiers.is_empty()) {
 		return;
 	}
 
 	Ref<CSGModifierContext> context;
 	context.instantiate();
 	context->setup(p_brush);
-	for (int i = 0; i < modifiers.size(); i++) {
-		Ref<CSGModifier> modifier = modifiers[i];
+	for (int i = 0; i < p_modifiers.size(); i++) {
+		Ref<CSGModifier> modifier = p_modifiers[i];
 		if (modifier.is_valid()) {
 			modifier->process(context);
 		}
 	}
 	p_brush->_regen_face_aabbs();
+}
+
+void CSGShape3D::_process_modifiers(CSGBrush *p_brush) {
+	_process_modifier_list(p_brush, modifiers);
+}
+
+bool CSGShape3D::_should_process_own_modifiers() const {
+	return true;
+}
+
+static void _initialize_imprint_patch(CSGBrush &r_brush, bool p_has_colors, uint32_t p_custom_channels, const Mesh::ArrayCustomFormat p_custom_formats[CSGBrush::CUSTOM_CHANNEL_COUNT]) {
+	r_brush.has_colors = p_has_colors;
+	r_brush.custom_channels = p_custom_channels;
+	for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+		r_brush.custom_formats[custom_i] = p_custom_formats[custom_i];
+	}
+}
+
+static void _assign_imprint_face_ids(CSGBrush &r_brush, const CSGFaceSourceMap &p_face_sources) {
+	HashMap<uint32_t, uint32_t> next_face_ids;
+	for (const KeyValue<uint64_t, CSGBrush::FaceMetadata> &source : p_face_sources) {
+		const uint32_t brush_id = uint32_t(source.key >> 32);
+		const uint32_t face_id = uint32_t(source.key);
+		uint32_t &next_face_id = next_face_ids[brush_id];
+		next_face_id = MAX(next_face_id, face_id + 1);
+	}
+	for (CSGBrush::Face &face : r_brush.faces) {
+		uint32_t &next_face_id = next_face_ids[face.metadata.brush_id];
+		face.metadata.face_id = next_face_id++;
+	}
+}
+
+struct CSGImprintPropertyOverride {
+	int property = 0;
+	Ref<CSGModifierValue> value;
+};
+
+static bool _try_direct_imprint_properties(
+		const manifold::Manifold &p_inside,
+		const TypedArray<CSGModifier> &p_modifiers,
+		bool &r_has_colors,
+		uint32_t &r_custom_channels,
+		Mesh::ArrayCustomFormat r_custom_formats[CSGBrush::CUSTOM_CHANNEL_COUNT],
+		manifold::Manifold &r_result) {
+	std::vector<CSGImprintPropertyOverride> overrides;
+	bool has_colors = r_has_colors;
+	uint32_t custom_channels = r_custom_channels;
+	Mesh::ArrayCustomFormat custom_formats[CSGBrush::CUSTOM_CHANNEL_COUNT];
+	for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+		custom_formats[custom_i] = r_custom_formats[custom_i];
+	}
+
+	for (int modifier_i = 0; modifier_i < p_modifiers.size(); modifier_i++) {
+		Ref<CSGModifier> modifier = p_modifiers[modifier_i];
+		if (modifier.is_null() || !modifier->is_enabled()) {
+			continue;
+		}
+		CSGAttributeModifier *attribute_modifier = Object::cast_to<CSGAttributeModifier>(modifier.ptr());
+		if (!attribute_modifier) {
+			return false;
+		}
+
+		for (int channel = 0; channel < CSGBrush::CUSTOM_CHANNEL_COUNT + 1; channel++) {
+			const bool channel_enabled = channel == 0 ? attribute_modifier->is_vertex_color_override_enabled() : attribute_modifier->is_custom_override_enabled(channel - 1);
+			if (!channel_enabled) {
+				continue;
+			}
+			Ref<CSGModifierChannelOverride> channel_override = channel == 0 ? attribute_modifier->get_vertex_color_override() : attribute_modifier->get_custom_override(channel - 1);
+			if (channel == 0) {
+				has_colors = true;
+			} else if (channel_override.is_valid()) {
+				custom_channels |= 1u << (channel - 1);
+				custom_formats[channel - 1] = channel_override->get_custom_format();
+			}
+			if (channel_override.is_null()) {
+				continue;
+			}
+
+			const int property_begin = channel == 0 ? MANIFOLD_PROPERTY_COLOR_R : MANIFOLD_PROPERTY_CUSTOM_0_X + (channel - 1) * 4;
+			for (int component = 0; component < 4; component++) {
+				Ref<CSGModifierValue> value = channel_override->get_component(component);
+				if (value.is_valid() && value->get_source() != CSGModifierValue::SOURCE_CONSTANT && value->get_source() != CSGModifierValue::SOURCE_KEEP_EXISTING) {
+					return false;
+				}
+				overrides.push_back({ property_begin + component - 3, value });
+			}
+		}
+	}
+
+	r_result = p_inside.SetProperties(MANIFOLD_PROPERTY_MAX - 3, [overrides](double *p_new_properties, manifold::vec3, const double *p_old_properties) {
+		for (int property = 0; property < MANIFOLD_PROPERTY_MAX - 3; property++) {
+			p_new_properties[property] = p_old_properties[property];
+		}
+		for (const CSGImprintPropertyOverride &property_override : overrides) {
+			if (property_override.value.is_null()) {
+				p_new_properties[property_override.property] = 0.0;
+				continue;
+			}
+			const real_t source_value = property_override.value->get_source() == CSGModifierValue::SOURCE_KEEP_EXISTING ? p_new_properties[property_override.property] : property_override.value->get_constant_value();
+			p_new_properties[property_override.property] = property_override.value->transform(source_value);
+		}
+	});
+	if (r_result.Status() != manifold::Manifold::Error::NoError) {
+		return false;
+	}
+	r_has_colors = has_colors;
+	r_custom_channels = custom_channels;
+	for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+		r_custom_formats[custom_i] = custom_formats[custom_i];
+	}
+	return true;
+}
+
+static bool _build_surface_imprint(
+		const manifold::Manifold &p_source,
+		const manifold::Manifold &p_imprint_volume,
+		const TypedArray<CSGModifier> &p_imprint_modifiers,
+		HashMap<int32_t, Ref<Material>> &r_mesh_materials,
+		CSGFaceSourceMap &r_face_sources,
+		CSGShape3D *p_owner,
+		bool &r_has_colors,
+		uint32_t &r_custom_channels,
+		Mesh::ArrayCustomFormat r_custom_formats[CSGBrush::CUSTOM_CHANNEL_COUNT],
+		manifold::Manifold &r_result) {
+	if (p_source.IsEmpty() || p_imprint_volume.IsEmpty()) {
+		r_result = p_source;
+		return true;
+	}
+	bool has_enabled_modifier = false;
+	for (int modifier_i = 0; modifier_i < p_imprint_modifiers.size(); modifier_i++) {
+		Ref<CSGModifier> modifier = p_imprint_modifiers[modifier_i];
+		if (modifier.is_valid() && modifier->is_enabled()) {
+			has_enabled_modifier = true;
+			break;
+		}
+	}
+	if (!has_enabled_modifier || !p_source.BoundingBox().DoesOverlap(p_imprint_volume.BoundingBox())) {
+		r_result = p_source;
+		return true;
+	}
+
+	// Split shares one Boolean3 intersection pass between the intersection and
+	// subtraction results. Calling both Boolean operations separately repeats
+	// the most expensive broad/narrow-phase work.
+	auto [inside_manifold, outside_manifold] = p_source.Split(p_imprint_volume);
+	if (inside_manifold.Status() != manifold::Manifold::Error::NoError) {
+		return false;
+	}
+	if (outside_manifold.Status() != manifold::Manifold::Error::NoError) {
+		return false;
+	}
+	if (inside_manifold.IsEmpty()) {
+		r_result = p_source;
+		return true;
+	}
+
+	manifold::Manifold modified_inside;
+	if (!_try_direct_imprint_properties(inside_manifold, p_imprint_modifiers, r_has_colors, r_custom_channels, r_custom_formats, modified_inside)) {
+		CSGBrush inside_solid;
+		_initialize_imprint_patch(inside_solid, r_has_colors, r_custom_channels, r_custom_formats);
+		_unpack_manifold(inside_manifold, r_mesh_materials, r_face_sources, &inside_solid);
+		if (inside_solid.faces.is_empty()) {
+			return false;
+		}
+
+		// Keep both Boolean halves closed. Repacking only their source-shell faces
+		// creates open meshes and lets Manifold's repair step alter unrelated
+		// topology and vertex properties. The temporary cut caps disappear when the
+		// complementary closed solids are joined again.
+		_process_modifier_list(&inside_solid, p_imprint_modifiers);
+		// The temporary brush numbers its faces locally. Reusing those IDs would
+		// overwrite source metadata entries keyed by (brush_id, face_id), causing
+		// unrelated faces to resolve to the wrong metadata after the final unpack.
+		_assign_imprint_face_ids(inside_solid, r_face_sources);
+		_pack_manifold(&inside_solid, modified_inside, r_mesh_materials, r_face_sources, p_owner);
+		if (modified_inside.Status() != manifold::Manifold::Error::NoError || modified_inside.IsEmpty()) {
+			return false;
+		}
+	}
+
+	manifold::Manifold imprinted = outside_manifold.IsEmpty() ? std::move(modified_inside) : outside_manifold.Boolean(modified_inside, manifold::OpType::Add);
+	if (imprinted.Status() != manifold::Manifold::Error::NoError || imprinted.IsEmpty()) {
+		return false;
+	}
+	// Imprint may change topology and properties, never the represented solid.
+	const double source_volume = p_source.Volume();
+	const double volume_tolerance = MAX(Math::abs(source_volume) * 0.000001, 0.000000001);
+	if (Math::abs(imprinted.Volume() - source_volume) > volume_tolerance) {
+		return false;
+	}
+	const manifold::Box source_bounds = p_source.BoundingBox();
+	const manifold::Box result_bounds = imprinted.BoundingBox();
+	const double bounds_tolerance = MAX(source_bounds.Scale() * 0.000001, 0.000000001);
+	for (int axis = 0; axis < 3; axis++) {
+		if (Math::abs(source_bounds.min[axis] - result_bounds.min[axis]) > bounds_tolerance || Math::abs(source_bounds.max[axis] - result_bounds.max[axis]) > bounds_tolerance) {
+			return false;
+		}
+	}
+
+	r_result = std::move(imprinted);
+	return true;
 }
 
 CSGBrush *CSGShape3D::_get_brush() {
@@ -860,14 +1063,18 @@ CSGBrush *CSGShape3D::_get_brush() {
 		if (!child_brush) {
 			continue;
 		}
-		has_colors |= child_brush->has_colors;
-		for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
-			if (child_brush->custom_channels & (1u << custom_i)) {
-				if (custom_channels & (1u << custom_i)) {
-					ERR_CONTINUE_MSG(custom_formats[custom_i] != child_brush->custom_formats[custom_i], "CSG custom channel formats must match across Boolean operands.");
+		CSGImprint3D *imprint = Object::cast_to<CSGImprint3D>(child);
+		if (!imprint) {
+			has_colors |= child_brush->has_colors;
+			for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+				if (child_brush->custom_channels & (1u << custom_i)) {
+					if (custom_channels & (1u << custom_i)) {
+						ERR_CONTINUE_MSG(custom_formats[custom_i] != child_brush->custom_formats[custom_i], "CSG custom channel formats must match across Boolean operands.");
+					} else {
+						custom_formats[custom_i] = child_brush->custom_formats[custom_i];
+					}
+					custom_channels |= 1u << custom_i;
 				}
-				custom_channels |= 1u << custom_i;
-				custom_formats[custom_i] = child_brush->custom_formats[custom_i];
 			}
 		}
 
@@ -877,13 +1084,24 @@ CSGBrush *CSGShape3D::_get_brush() {
 		for (CSGBrush::Face &face : transformed_brush.faces) {
 			child_brush_count = MAX(child_brush_count, face.metadata.brush_id + 1);
 			face.metadata.brush_id += next_brush_id;
-			if (child->get_operation() == CSGShape3D::OPERATION_SUBTRACTION && face.metadata.generation == CSGBrush::FACE_ORIGINAL) {
+			if (!imprint && child->get_operation() == CSGShape3D::OPERATION_SUBTRACTION && face.metadata.generation == CSGBrush::FACE_ORIGINAL) {
 				face.metadata.generation = CSGBrush::FACE_BOOLEAN_GENERATED;
 			}
 		}
 		next_brush_id += child_brush_count;
 		manifold::Manifold child_manifold;
 		_pack_manifold(&transformed_brush, child_manifold, mesh_materials, face_sources, child);
+		if (imprint) {
+			manifold::Manifold source = manifold::Manifold::BatchBoolean(manifolds, current_op);
+			manifolds.clear();
+			manifold::Manifold imprinted_result;
+			if (!_build_surface_imprint(source, child_manifold, imprint->get_modifiers(), mesh_materials, face_sources, this, has_colors, custom_channels, custom_formats, imprinted_result)) {
+				WARN_PRINT(vformat("CSG imprint processing failed for node %s; the source geometry was preserved.", imprint->get_path()));
+				imprinted_result = std::move(source);
+			}
+			manifolds.push_back(std::move(imprinted_result));
+			continue;
+		}
 		manifold::OpType child_operation = ManifoldOperation::convert_csg_op(child->get_operation());
 		if (child_operation != current_op) {
 			manifold::Manifold result = manifold::Manifold::BatchBoolean(manifolds, current_op);
@@ -931,7 +1149,9 @@ CSGBrush *CSGShape3D::_get_brush() {
 			_unpack_manifold(manifold_result, mesh_materials, face_sources, n);
 		}
 	}
-	_process_modifiers(n);
+	if (_should_process_own_modifiers()) {
+		_process_modifiers(n);
+	}
 
 	AABB aabb;
 	if (n && !n->faces.is_empty()) {
@@ -1052,21 +1272,36 @@ void CSGShape3D::update_shape() {
 
 	CSGBrush *n = _get_brush();
 	ERR_FAIL_NULL_MSG(n, "Cannot get CSGBrush.");
+	root_mesh = _build_array_mesh(n);
+	if (root_mesh.is_valid()) {
+		set_base(root_mesh->get_rid());
+	}
+
+	update_gizmos();
+
+#ifndef PHYSICS_3D_DISABLED
+	_update_collision_faces();
+#endif // PHYSICS_3D_DISABLED
+}
+
+Ref<ArrayMesh> CSGShape3D::_build_array_mesh(CSGBrush *p_brush) {
+	Ref<ArrayMesh> mesh;
+	ERR_FAIL_NULL_V(p_brush, mesh);
 
 	Vector<int> face_count;
-	face_count.resize(n->materials.size() + 1);
+	face_count.resize(p_brush->materials.size() + 1);
 	face_count.fill(0);
 
 	Vector<ShapeUpdateSurface> surfaces;
 	surfaces.resize(face_count.size());
 
 	if (autosmooth) {
-		_build_surfaces_smoothed(n, surfaces, face_count);
+		_build_surfaces_smoothed(p_brush, surfaces, face_count);
 	} else {
-		_build_surfaces_default(n, surfaces, face_count);
+		_build_surfaces_default(p_brush, surfaces, face_count);
 	}
 
-	root_mesh.instantiate();
+	mesh.instantiate();
 	//create surfaces
 
 	for (int i = 0; i < surfaces.size(); i++) {
@@ -1099,7 +1334,7 @@ void CSGShape3D::update_shape() {
 		array[Mesh::ARRAY_VERTEX] = surfaces[i].vertices;
 		array[Mesh::ARRAY_NORMAL] = surfaces[i].normals;
 		array[Mesh::ARRAY_TEX_UV] = surfaces[i].uvs;
-		if (n->has_colors) {
+		if (p_brush->has_colors) {
 			array[Mesh::ARRAY_COLOR] = surfaces[i].colors;
 		}
 		if (have_tangents) {
@@ -1108,24 +1343,17 @@ void CSGShape3D::update_shape() {
 
 		uint64_t format_flags = 0;
 		for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
-			if (n->custom_channels & (1u << custom_i)) {
-				array[Mesh::ARRAY_CUSTOM0 + custom_i] = _csg_pack_custom_array(surfaces[i].customs[custom_i], n->custom_formats[custom_i]);
-				format_flags |= uint64_t(n->custom_formats[custom_i]) << (Mesh::ARRAY_FORMAT_CUSTOM0_SHIFT + custom_i * Mesh::ARRAY_FORMAT_CUSTOM_BITS);
+			if (p_brush->custom_channels & (1u << custom_i)) {
+				array[Mesh::ARRAY_CUSTOM0 + custom_i] = _csg_pack_custom_array(surfaces[i].customs[custom_i], p_brush->custom_formats[custom_i]);
+				format_flags |= uint64_t(p_brush->custom_formats[custom_i]) << (Mesh::ARRAY_FORMAT_CUSTOM0_SHIFT + custom_i * Mesh::ARRAY_FORMAT_CUSTOM_BITS);
 			}
 		}
 
-		int idx = root_mesh->get_surface_count();
-		root_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, array, Array(), Dictionary(), format_flags);
-		root_mesh->surface_set_material(idx, surfaces[i].material);
+		int idx = mesh->get_surface_count();
+		mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, array, Array(), Dictionary(), format_flags);
+		mesh->surface_set_material(idx, surfaces[i].material);
 	}
-
-	set_base(root_mesh->get_rid());
-
-	update_gizmos();
-
-#ifndef PHYSICS_3D_DISABLED
-	_update_collision_faces();
-#endif // PHYSICS_3D_DISABLED
+	return mesh;
 }
 
 void CSGShape3D::_build_surfaces_smoothed(CSGBrush *p_brush, Vector<CSGShape3D::ShapeUpdateSurface> &r_surfaces, Vector<int> &r_face_count) {
@@ -1407,6 +1635,272 @@ Ref<ArrayMesh> CSGShape3D::bake_static_mesh() {
 		baked_mesh = root_mesh;
 	}
 	return baked_mesh;
+}
+
+namespace {
+
+struct CSGSplitPlane {
+	Vector3 normal;
+	real_t offset = 0.0;
+};
+
+struct CSGSplitPiece {
+	manifold::Manifold geometry;
+	Vector<CSGSplitPlane> cut_planes;
+};
+
+static Vector3 _csg_split_balanced_normal(const manifold::Box &p_bounds) {
+	const manifold::vec3 size = p_bounds.Size();
+	if (size.x >= size.y && size.x >= size.z) {
+		return Vector3(1, 0, 0);
+	}
+	if (size.y >= size.z) {
+		return Vector3(0, 1, 0);
+	}
+	return Vector3(0, 0, 1);
+}
+
+static Vector3 _csg_split_random_normal(const Vector3 &p_base, real_t p_rotation_jitter, RandomPCG &r_rng) {
+	if (Math::is_zero_approx(p_rotation_jitter)) {
+		return p_base;
+	}
+	Vector3 tangent = p_base.cross(Vector3(0, 1, 0));
+	if (tangent.length_squared() < CMP_EPSILON) {
+		tangent = p_base.cross(Vector3(1, 0, 0));
+	}
+	tangent.normalize();
+	const Vector3 bitangent = p_base.cross(tangent).normalized();
+	const real_t deviation = r_rng.random(0.0f, p_rotation_jitter);
+	const real_t azimuth = r_rng.random(0.0f, real_t(Math::TAU));
+	return (p_base * Math::cos(deviation) + (tangent * Math::cos(azimuth) + bitangent * Math::sin(azimuth)) * Math::sin(deviation)).normalized();
+}
+
+static real_t _csg_split_projected_extent(const manifold::Box &p_bounds, const Vector3 &p_normal) {
+	const manifold::vec3 size = p_bounds.Size();
+	return (Math::abs(p_normal.x) * size.x + Math::abs(p_normal.y) * size.y + Math::abs(p_normal.z) * size.z) * 0.5;
+}
+
+static void _csg_mark_split_faces(CSGBrush &r_brush, const Vector<CSGSplitPlane> &p_cut_planes, real_t p_uv_scale, const TypedArray<CSGModifier> &p_cut_modifiers) {
+	if (r_brush.faces.is_empty() || p_cut_planes.is_empty()) {
+		return;
+	}
+
+	AABB bounds = r_brush.faces[0].aabb;
+	for (int face_i = 1; face_i < r_brush.faces.size(); face_i++) {
+		bounds.merge_with(r_brush.faces[face_i].aabb);
+	}
+	const real_t tolerance = MAX(bounds.size.length() * real_t(0.0000001), real_t(CMP_EPSILON));
+	Vector<int> cut_face_indices;
+	for (int face_i = 0; face_i < r_brush.faces.size(); face_i++) {
+		CSGBrush::Face &face = r_brush.faces.write[face_i];
+		const CSGSplitPlane *matching_plane = nullptr;
+		for (const CSGSplitPlane &plane : p_cut_planes) {
+			bool on_plane = true;
+			for (int corner = 0; corner < 3; corner++) {
+				on_plane &= Math::abs(plane.normal.dot(face.vertices[corner]) - plane.offset) <= tolerance;
+			}
+			if (on_plane) {
+				matching_plane = &plane;
+				break;
+			}
+		}
+		if (!matching_plane) {
+			continue;
+		}
+
+		face.metadata.generation = CSGBrush::FACE_BOOLEAN_GENERATED;
+		face.metadata.semantic = SNAME("CSG_SPLIT_CUT");
+		Vector3 uv_axis_u = matching_plane->normal.cross(Vector3(0, 1, 0));
+		if (uv_axis_u.length_squared() < CMP_EPSILON) {
+			uv_axis_u = matching_plane->normal.cross(Vector3(1, 0, 0));
+		}
+		uv_axis_u.normalize();
+		const Vector3 uv_axis_v = matching_plane->normal.cross(uv_axis_u).normalized();
+		for (int corner = 0; corner < 3; corner++) {
+			face.uvs[corner] = Vector2(face.vertices[corner].dot(uv_axis_u), face.vertices[corner].dot(uv_axis_v)) * p_uv_scale;
+		}
+		cut_face_indices.push_back(face_i);
+	}
+
+	if (cut_face_indices.is_empty() || p_cut_modifiers.is_empty()) {
+		return;
+	}
+	CSGBrush cut_brush;
+	cut_brush.materials = r_brush.materials;
+	cut_brush.has_colors = r_brush.has_colors;
+	cut_brush.custom_channels = r_brush.custom_channels;
+	for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+		cut_brush.custom_formats[custom_i] = r_brush.custom_formats[custom_i];
+	}
+	for (int face_index : cut_face_indices) {
+		cut_brush.faces.push_back(r_brush.faces[face_index]);
+	}
+	cut_brush._regen_face_aabbs();
+	_process_modifier_list(&cut_brush, p_cut_modifiers);
+	r_brush.has_colors |= cut_brush.has_colors;
+	r_brush.custom_channels |= cut_brush.custom_channels;
+	for (int custom_i = 0; custom_i < CSGBrush::CUSTOM_CHANNEL_COUNT; custom_i++) {
+		if (cut_brush.custom_channels & (1u << custom_i)) {
+			r_brush.custom_formats[custom_i] = cut_brush.custom_formats[custom_i];
+		}
+	}
+	for (int cut_i = 0; cut_i < cut_face_indices.size(); cut_i++) {
+		r_brush.faces.write[cut_face_indices[cut_i]] = cut_brush.faces[cut_i];
+	}
+	r_brush._regen_face_aabbs();
+}
+
+static AABB _csg_split_brush_bounds(const CSGBrush &p_brush) {
+	ERR_FAIL_COND_V(p_brush.faces.is_empty(), AABB());
+	AABB bounds = p_brush.faces[0].aabb;
+	for (int face_i = 1; face_i < p_brush.faces.size(); face_i++) {
+		bounds = bounds.merge(p_brush.faces[face_i].aabb);
+	}
+	return bounds;
+}
+
+static Vector3 _csg_split_part_center(const AABB &p_bounds, CSGSplitSettings::PartCenter p_mode) {
+	const Vector3 center = p_bounds.get_center();
+	const Vector3 end = p_bounds.get_end();
+	switch (p_mode) {
+		case CSGSplitSettings::PART_CENTER_ORIGINAL:
+			return Vector3();
+		case CSGSplitSettings::PART_CENTER_AABB:
+			return center;
+		case CSGSplitSettings::PART_CENTER_TOP:
+			return Vector3(center.x, end.y, center.z);
+		case CSGSplitSettings::PART_CENTER_BOTTOM:
+			return Vector3(center.x, p_bounds.position.y, center.z);
+		case CSGSplitSettings::PART_CENTER_X_FRONT:
+			return Vector3(end.x, center.y, center.z);
+		case CSGSplitSettings::PART_CENTER_Y_FRONT:
+			return Vector3(center.x, end.y, center.z);
+		case CSGSplitSettings::PART_CENTER_Z_FRONT:
+			return Vector3(center.x, center.y, end.z);
+		case CSGSplitSettings::PART_CENTER_X_BACK:
+			return Vector3(p_bounds.position.x, center.y, center.z);
+		case CSGSplitSettings::PART_CENTER_Y_BACK:
+			return Vector3(center.x, p_bounds.position.y, center.z);
+		case CSGSplitSettings::PART_CENTER_Z_BACK:
+			return Vector3(center.x, center.y, p_bounds.position.z);
+	}
+	return center;
+}
+
+static void _csg_split_recenter_brush(CSGBrush &r_brush, const Vector3 &p_center) {
+	if (p_center.is_zero_approx()) {
+		return;
+	}
+	for (CSGBrush::Face &face : r_brush.faces) {
+		for (int corner = 0; corner < 3; corner++) {
+			face.vertices[corner] -= p_center;
+		}
+	}
+	r_brush._regen_face_aabbs();
+}
+
+} // namespace
+
+TypedArray<ArrayMesh> CSGShape3D::split_meshes(const Ref<CSGSplitSettings> &p_settings) {
+	TypedArray<ArrayMesh> result;
+	Ref<CSGSplitSettings> settings = p_settings.is_valid() ? p_settings : split_settings;
+	if (settings.is_null()) {
+		settings.instantiate();
+	}
+
+	CSGBrush *source_brush = _get_brush();
+	ERR_FAIL_NULL_V_MSG(source_brush, result, "Cannot split an empty CSG brush.");
+	if (source_brush->faces.is_empty()) {
+		return result;
+	}
+
+	HashMap<int32_t, Ref<Material>> mesh_materials;
+	CSGFaceSourceMap face_sources;
+	manifold::Manifold source;
+	_pack_manifold(source_brush, source, mesh_materials, face_sources, this);
+	if (source.Status() != manifold::Manifold::Error::NoError || source.IsEmpty()) {
+		ERR_FAIL_V_MSG(result, "Cannot split invalid CSG geometry.");
+	}
+
+	std::vector<CSGSplitPiece> pieces;
+	pieces.push_back({ std::move(source), Vector<CSGSplitPlane>() });
+	RandomPCG rng(settings->get_seed());
+	for (int iteration = 0; iteration < settings->get_iterations(); iteration++) {
+		std::vector<CSGSplitPiece> next_pieces;
+		next_pieces.reserve(MIN(settings->get_max_pieces(), int(pieces.size() * 2)));
+		for (int piece_i = 0; piece_i < int(pieces.size()); piece_i++) {
+			CSGSplitPiece &piece = pieces[piece_i];
+			const int unsplit_remainder = int(pieces.size()) - piece_i;
+			if (int(next_pieces.size()) + unsplit_remainder >= settings->get_max_pieces()) {
+				next_pieces.push_back(std::move(piece));
+				continue;
+			}
+
+			const manifold::Box bounds = piece.geometry.BoundingBox();
+			const Vector3 base_normal = _csg_split_balanced_normal(bounds);
+			bool was_split = false;
+			const int attempts = settings->get_mode() == CSGSplitSettings::MODE_RANDOM_PLANES ? settings->get_retry_count() : 1;
+			for (int attempt = 0; attempt < attempts; attempt++) {
+				const Vector3 normal = settings->get_mode() == CSGSplitSettings::MODE_RANDOM_PLANES ? _csg_split_random_normal(base_normal, settings->get_rotation_jitter(), rng) : base_normal;
+				const manifold::vec3 center = bounds.Center();
+				real_t offset = normal.dot(Vector3(center.x, center.y, center.z));
+				if (settings->get_mode() == CSGSplitSettings::MODE_RANDOM_PLANES) {
+					offset += rng.random(-settings->get_offset_jitter(), settings->get_offset_jitter()) * _csg_split_projected_extent(bounds, normal);
+				}
+				auto [positive, negative] = piece.geometry.SplitByPlane(manifold::vec3(normal.x, normal.y, normal.z), offset);
+				if (positive.Status() != manifold::Manifold::Error::NoError || negative.Status() != manifold::Manifold::Error::NoError || positive.IsEmpty() || negative.IsEmpty()) {
+					continue;
+				}
+				if (positive.Volume() < settings->get_min_piece_volume() || negative.Volume() < settings->get_min_piece_volume()) {
+					continue;
+				}
+
+				Vector<CSGSplitPlane> child_planes = piece.cut_planes;
+				child_planes.push_back({ normal, offset });
+				next_pieces.push_back({ std::move(positive), child_planes });
+				next_pieces.push_back({ std::move(negative), child_planes });
+				was_split = true;
+				break;
+			}
+			if (!was_split) {
+				next_pieces.push_back(std::move(piece));
+			}
+		}
+		pieces = std::move(next_pieces);
+	}
+
+	if (settings->is_decomposing_islands()) {
+		std::vector<CSGSplitPiece> decomposed;
+		for (CSGSplitPiece &piece : pieces) {
+			std::vector<manifold::Manifold> islands = piece.geometry.Decompose();
+			if (islands.size() > 1 && decomposed.size() + islands.size() <= size_t(settings->get_max_pieces())) {
+				for (manifold::Manifold &island : islands) {
+					decomposed.push_back({ std::move(island), piece.cut_planes });
+				}
+			} else {
+				decomposed.push_back(std::move(piece));
+			}
+		}
+		pieces = std::move(decomposed);
+	}
+
+	for (CSGSplitPiece &piece : pieces) {
+		CSGBrush piece_brush;
+		_initialize_imprint_patch(piece_brush, source_brush->has_colors, source_brush->custom_channels, source_brush->custom_formats);
+		_unpack_manifold(piece.geometry, mesh_materials, face_sources, &piece_brush);
+		if (piece_brush.faces.is_empty()) {
+			continue;
+		}
+		_csg_mark_split_faces(piece_brush, piece.cut_planes, settings->get_cut_uv_scale(), settings->get_cut_modifiers());
+		const Vector3 part_center = _csg_split_part_center(_csg_split_brush_bounds(piece_brush), settings->get_part_center());
+		_csg_split_recenter_brush(piece_brush, part_center);
+		Ref<ArrayMesh> mesh = _build_array_mesh(&piece_brush);
+		if (mesh.is_valid() && mesh->get_surface_count() > 0) {
+			mesh->set_meta(SNAME("csg_split_center"), part_center);
+			result.push_back(mesh);
+		}
+	}
+	return result;
 }
 
 #ifndef PHYSICS_3D_DISABLED
@@ -1764,6 +2258,14 @@ Ref<CSGTopologySettings> CSGShape3D::get_topology_settings() const {
 	return topology_settings;
 }
 
+void CSGShape3D::set_split_settings(const Ref<CSGSplitSettings> &p_split_settings) {
+	split_settings = p_split_settings;
+}
+
+Ref<CSGSplitSettings> CSGShape3D::get_split_settings() const {
+	return split_settings;
+}
+
 void CSGShape3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_root_shape"), &CSGShape3D::is_root_shape);
 
@@ -1812,8 +2314,11 @@ void CSGShape3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_bevel_settings"), &CSGShape3D::get_bevel_settings);
 	ClassDB::bind_method(D_METHOD("set_topology_settings", "topology_settings"), &CSGShape3D::set_topology_settings);
 	ClassDB::bind_method(D_METHOD("get_topology_settings"), &CSGShape3D::get_topology_settings);
+	ClassDB::bind_method(D_METHOD("set_split_settings", "split_settings"), &CSGShape3D::set_split_settings);
+	ClassDB::bind_method(D_METHOD("get_split_settings"), &CSGShape3D::get_split_settings);
 
 	ClassDB::bind_method(D_METHOD("bake_static_mesh"), &CSGShape3D::bake_static_mesh);
+	ClassDB::bind_method(D_METHOD("split_meshes", "settings"), &CSGShape3D::split_meshes, DEFVAL(Ref<CSGSplitSettings>()));
 
 	ClassDB::bind_method(D_METHOD("set_autosmooth", "autosmooth"), &CSGShape3D::set_autosmooth);
 	ClassDB::bind_method(D_METHOD("is_autosmooth"), &CSGShape3D::is_autosmooth);
@@ -1832,6 +2337,8 @@ void CSGShape3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "bevel_settings", PROPERTY_HINT_RESOURCE_TYPE, "CSGBevelSettings"), "set_bevel_settings", "get_bevel_settings");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "topology_settings", PROPERTY_HINT_RESOURCE_TYPE, "CSGTopologySettings"), "set_topology_settings", "get_topology_settings");
 	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "modifiers", PROPERTY_HINT_ARRAY_TYPE, MAKE_RESOURCE_TYPE_HINT("CSGModifier")), "set_modifiers", "get_modifiers");
+	ADD_GROUP("Splitting", "split_");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "split_settings", PROPERTY_HINT_RESOURCE_TYPE, "CSGSplitSettings"), "set_split_settings", "get_split_settings");
 
 #ifndef PHYSICS_3D_DISABLED
 	ADD_GROUP("Collision", "collision_");
@@ -1864,6 +2371,20 @@ CSGBrush *CSGCombiner3D::_build_brush() {
 }
 
 CSGCombiner3D::CSGCombiner3D() {
+}
+
+void CSGImprint3D::_validate_property(PropertyInfo &p_property) const {
+	CSGCombiner3D::_validate_property(p_property);
+	if (p_property.name == "operation") {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+	}
+}
+
+bool CSGImprint3D::_should_process_own_modifiers() const {
+	return false;
+}
+
+CSGImprint3D::CSGImprint3D() {
 }
 
 /////////////////////

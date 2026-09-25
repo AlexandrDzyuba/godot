@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CSGImprint3D" inherits="CSGCombiner3D" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Splits a parent CSG surface with a volume without changing the parent's solid shape.
+	</brief_description>
+	<description>
+		Combines its child CSG shapes into an imprint volume. When this node is a direct child of another [CSGShape3D], the parent surface is split wherever it intersects that volume, but faces belonging to the imprint volume and temporary Boolean cut faces are discarded. The resulting solid therefore retains the parent's volume.
+		The modifiers assigned to this node are applied only to the parent-surface fragments inside the imprint volume, rather than to the volume itself. This can write road masks, biome IDs, path coordinates, or other data into vertex color and CUSTOM0 through CUSTOM3 without creating another rendering surface or material. Use [constant CSGModifierValue.SOURCE_KEEP_EXISTING] for components that must survive the imprint unchanged.
+		Add closed [CSGShape3D] children to define the volume. For example, a box or sphere can paint a simple region, while a closed mesh ribbon can represent a path. An imprint with no valid closed child volume has no effect. Nested [CSGImprint3D] nodes are evaluated by their immediate parent like regular imprint containers.
+		For the fastest property-only imprint, use [CSGAttributeModifier] values whose sources are [constant CSGModifierValue.SOURCE_CONSTANT] or [constant CSGModifierValue.SOURCE_KEEP_EXISTING]. These values can be written directly to Manifold vertex properties without converting the intersected solid to an intermediate CSG brush. Sources that depend on face topology and custom script modifiers use the general processing path.
+		[b]Note:[/b] Imprinting performs an intersection and a subtraction internally, so repeatedly adding imprints increases topology and is more expensive than shader-only painting. Bake or simplify geometry after accumulating many persistent imprints.
+	</description>
+</class>

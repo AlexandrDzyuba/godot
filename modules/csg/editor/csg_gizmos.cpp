@@ -34,24 +34,49 @@
 #include "core/object/callable_mp.h"
 #include "editor/editor_node.h"
 #include "editor/editor_undo_redo_manager.h"
+#include "editor/inspector/editor_inspector.h"
 #include "editor/scene/3d/gizmos/gizmo_3d_helper.h"
 #include "editor/scene/3d/node_3d_editor_plugin.h"
 #include "editor/settings/editor_settings.h"
+#include "editor/themes/editor_scale.h"
 #include "scene/3d/camera_3d.h"
 #include "scene/3d/mesh_instance_3d.h"
 #include "scene/3d/physics/collision_shape_3d.h"
+#include "scene/3d/physics/rigid_body_3d.h"
+#include "scene/gui/box_container.h"
 #include "scene/gui/dialogs.h"
+#include "scene/gui/label.h"
 #include "scene/gui/menu_button.h"
 #include "scene/main/scene_tree.h"
+#include "scene/resources/3d/convex_polygon_shape_3d.h"
+
+static void _csg_split_add_owner_undo(EditorUndoRedoManager *p_undo_redo, Node *p_node, Node *p_owner) {
+	p_undo_redo->add_do_method(p_node, "set_owner", p_owner);
+	Node3D *node_3d = Object::cast_to<Node3D>(p_node);
+	if (node_3d) {
+		p_undo_redo->add_do_method(Node3DEditor::get_singleton(), SceneStringName(_request_gizmo), node_3d);
+	}
+	for (int child_i = 0; child_i < p_node->get_child_count(); child_i++) {
+		_csg_split_add_owner_undo(p_undo_redo, p_node->get_child(child_i), p_owner);
+	}
+}
 
 void CSGShapeEditor::_node_removed(Node *p_node) {
 	if (p_node == node) {
+		split_dialog->hide();
+		split_inspector->edit(nullptr);
+		split_dialog_settings.unref();
 		node = nullptr;
 		options->hide();
 	}
 }
 
 void CSGShapeEditor::edit(CSGShape3D *p_csg_shape) {
+	if (node != p_csg_shape && split_dialog->is_visible()) {
+		split_dialog->hide();
+		split_inspector->edit(nullptr);
+		split_dialog_settings.unref();
+	}
 	node = p_csg_shape;
 	if (node) {
 		options->show();
@@ -69,19 +94,15 @@ void CSGShapeEditor::_notification(int p_what) {
 }
 
 void CSGShapeEditor::_menu_option(int p_option) {
-	Array meshes = node->get_meshes();
-	if (meshes.is_empty()) {
-		err_dialog->set_text(TTR("CSG operation returned an empty array."));
-		err_dialog->popup_centered();
-		return;
-	}
-
 	switch (p_option) {
 		case MENU_OPTION_BAKE_MESH_INSTANCE: {
 			_create_baked_mesh_instance();
 		} break;
 		case MENU_OPTION_BAKE_COLLISION_SHAPE: {
 			_create_baked_collision_shape();
+		} break;
+		case MENU_OPTION_CREATE_SPLIT_MESHES: {
+			_popup_split_dialog();
 		} break;
 	}
 }
@@ -152,6 +173,94 @@ void CSGShapeEditor::_create_baked_collision_shape() {
 	ur->commit_action();
 }
 
+void CSGShapeEditor::_popup_split_dialog() {
+	ERR_FAIL_NULL(node);
+
+	Ref<CSGSplitSettings> current_settings = node->get_split_settings();
+	if (current_settings.is_valid()) {
+		Ref<Resource> duplicated_settings = current_settings->duplicate(true);
+		split_dialog_settings = duplicated_settings;
+	} else {
+		split_dialog_settings.instantiate();
+	}
+
+	ERR_FAIL_COND(split_dialog_settings.is_null());
+	split_inspector->edit(split_dialog_settings.ptr());
+	split_dialog->popup_centered_clamped(Size2(560, 620) * EDSCALE, 0.8);
+}
+
+void CSGShapeEditor::_create_split_meshes() {
+	ERR_FAIL_NULL(node);
+	ERR_FAIL_COND(split_dialog_settings.is_null());
+
+	if (node == get_tree()->get_edited_scene_root()) {
+		err_dialog->set_text(TTR("Can not add split meshes as a sibling for the scene root.\nMove the CSG root node below a parent node."));
+		err_dialog->popup_centered();
+		return;
+	}
+
+	TypedArray<ArrayMesh> meshes = node->split_meshes(split_dialog_settings);
+	if (meshes.is_empty()) {
+		err_dialog->set_text(TTR("CSG splitting returned no meshes."));
+		err_dialog->popup_centered();
+		return;
+	}
+
+	Node3D *container = memnew(Node3D);
+	container->set_name(String(node->get_name()) + "_Splits");
+	container->set_transform(node->get_transform());
+	for (int piece_i = 0; piece_i < meshes.size(); piece_i++) {
+		Ref<ArrayMesh> mesh = meshes[piece_i];
+		if (mesh.is_null()) {
+			continue;
+		}
+		const Vector3 part_center = mesh->get_meta(SNAME("csg_split_center"), Vector3());
+		if (split_dialog_settings->get_output() == CSGSplitSettings::OUTPUT_RIGID_BODIES) {
+			RigidBody3D *piece = memnew(RigidBody3D);
+			piece->set_name(vformat("Piece_%04d", piece_i));
+			piece->set_position(part_center);
+			container->add_child(piece);
+
+			MeshInstance3D *mesh_instance = memnew(MeshInstance3D);
+			mesh_instance->set_name("Mesh");
+			mesh_instance->set_mesh(mesh);
+			piece->add_child(mesh_instance);
+
+			Ref<ConvexPolygonShape3D> shape = mesh->create_convex_shape(true, false);
+			if (shape.is_valid()) {
+				CollisionShape3D *collision = memnew(CollisionShape3D);
+				collision->set_name("Collision");
+				collision->set_shape(shape);
+				piece->add_child(collision);
+			}
+		} else {
+			MeshInstance3D *piece = memnew(MeshInstance3D);
+			piece->set_name(vformat("Piece_%04d", piece_i));
+			piece->set_mesh(mesh);
+			piece->set_position(part_center);
+			container->add_child(piece);
+		}
+	}
+
+	EditorUndoRedoManager *ur = EditorUndoRedoManager::get_singleton();
+	ur->create_action(TTR("Create Split CSGShape3D Meshes"));
+	Node *owner = get_tree()->get_edited_scene_root();
+	Ref<CSGSplitSettings> previous_settings = node->get_split_settings();
+	ur->add_do_method(node, "set_split_settings", split_dialog_settings);
+	ur->add_do_method(node, "add_sibling", container, true);
+	ur->add_do_method(container, "set_owner", owner);
+	for (int child_i = 0; child_i < container->get_child_count(); child_i++) {
+		_csg_split_add_owner_undo(ur, container->get_child(child_i), owner);
+	}
+	ur->add_do_reference(container);
+	ur->add_undo_method(node->get_parent(), "remove_child", container);
+	ur->add_undo_method(node, "set_split_settings", previous_settings);
+	ur->commit_action();
+
+	split_dialog->hide();
+	split_inspector->edit(nullptr);
+}
+
 CSGShapeEditor::CSGShapeEditor() {
 	options = memnew(MenuButton);
 	options->hide();
@@ -163,11 +272,36 @@ CSGShapeEditor::CSGShapeEditor() {
 
 	options->get_popup()->add_item(TTR("Bake Mesh Instance"), MENU_OPTION_BAKE_MESH_INSTANCE);
 	options->get_popup()->add_item(TTR("Bake Collision Shape"), MENU_OPTION_BAKE_COLLISION_SHAPE);
+	options->get_popup()->add_separator();
+	options->get_popup()->add_item(TTR("Create Split Meshes"), MENU_OPTION_CREATE_SPLIT_MESHES);
 
 	options->get_popup()->connect(SceneStringName(id_pressed), callable_mp(this, &CSGShapeEditor::_menu_option));
 
 	err_dialog = memnew(AcceptDialog);
 	add_child(err_dialog);
+
+	split_dialog = memnew(ConfirmationDialog);
+	split_dialog->set_title(TTR("Split CSG Meshes"));
+	split_dialog->set_ok_button_text(TTR("Create"));
+	split_dialog->set_hide_on_ok(false);
+	split_dialog->set_wrap_controls(false);
+	add_child(split_dialog);
+
+	VBoxContainer *split_dialog_content = memnew(VBoxContainer);
+	split_dialog_content->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	split_dialog_content->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	split_dialog->add_child(split_dialog_content);
+
+	Label *split_hint = memnew(Label);
+	split_hint->set_text(TTR("Each iteration can split every current piece once. The final count is limited by Max Pieces."));
+	split_hint->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
+	split_dialog_content->add_child(split_hint);
+
+	split_inspector = EditorInspector::create_default_inspector();
+	split_inspector->set_h_size_flags(Control::SIZE_EXPAND_FILL);
+	split_inspector->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	split_dialog_content->add_child(split_inspector);
+	split_dialog->connect(SceneStringName(confirmed), callable_mp(this, &CSGShapeEditor::_create_split_meshes));
 }
 
 ///////////

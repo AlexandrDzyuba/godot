@@ -34,6 +34,7 @@
 #include "csg_bevel_settings.h"
 #include "csg_height_map_layer.h"
 #include "csg_modifier.h"
+#include "csg_split_settings.h"
 #include "csg_topology_settings.h"
 
 #include "scene/3d/path_3d.h"
@@ -92,6 +93,7 @@ private:
 	TypedArray<CSGModifier> modifiers;
 	Ref<CSGBevelSettings> bevel_settings;
 	Ref<CSGTopologySettings> topology_settings;
+	Ref<CSGSplitSettings> split_settings;
 
 	Ref<ArrayMesh> root_mesh;
 
@@ -133,6 +135,7 @@ private:
 
 	void _build_surfaces_smoothed(CSGBrush *p_brush, Vector<ShapeUpdateSurface> &r_surfaces, Vector<int> &r_face_count);
 	void _build_surfaces_default(CSGBrush *p_brush, Vector<ShapeUpdateSurface> &r_surfaces, Vector<int> &r_face_count);
+	Ref<ArrayMesh> _build_array_mesh(CSGBrush *p_brush);
 	void _process_modifiers(CSGBrush *p_brush);
 	void _modifier_changed();
 	void _bevel_settings_changed();
@@ -141,6 +144,7 @@ private:
 protected:
 	void _notification(int p_what);
 	virtual CSGBrush *_build_brush() = 0;
+	virtual bool _should_process_own_modifiers() const;
 	void _make_dirty(bool p_parent_removing = false);
 	PackedStringArray get_configuration_warnings() const override;
 
@@ -204,6 +208,9 @@ public:
 
 	void set_topology_settings(const Ref<CSGTopologySettings> &p_topology_settings);
 	Ref<CSGTopologySettings> get_topology_settings() const;
+	void set_split_settings(const Ref<CSGSplitSettings> &p_split_settings);
+	Ref<CSGSplitSettings> get_split_settings() const;
+	TypedArray<ArrayMesh> split_meshes(const Ref<CSGSplitSettings> &p_settings = Ref<CSGSplitSettings>());
 
 	bool is_root_shape() const;
 
@@ -238,6 +245,17 @@ private:
 
 public:
 	CSGCombiner3D();
+};
+
+class CSGImprint3D : public CSGCombiner3D {
+	GDCLASS(CSGImprint3D, CSGCombiner3D);
+
+protected:
+	void _validate_property(PropertyInfo &p_property) const;
+	bool _should_process_own_modifiers() const override;
+
+public:
+	CSGImprint3D();
 };
 
 class CSGPrimitive3D : public CSGShape3D {

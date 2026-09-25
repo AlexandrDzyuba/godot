@@ -37,6 +37,8 @@
 #include "scene/gui/control.h"
 
 class AcceptDialog;
+class ConfirmationDialog;
+class EditorInspector;
 class Gizmo3DHelper;
 class MenuButton;
 
@@ -67,16 +69,22 @@ class CSGShapeEditor : public Control {
 	enum Menu {
 		MENU_OPTION_BAKE_MESH_INSTANCE,
 		MENU_OPTION_BAKE_COLLISION_SHAPE,
+		MENU_OPTION_CREATE_SPLIT_MESHES,
 	};
 
 	CSGShape3D *node = nullptr;
 	MenuButton *options = nullptr;
 	AcceptDialog *err_dialog = nullptr;
+	ConfirmationDialog *split_dialog = nullptr;
+	EditorInspector *split_inspector = nullptr;
+	Ref<CSGSplitSettings> split_dialog_settings;
 
 	void _menu_option(int p_option);
 
 	void _create_baked_mesh_instance();
 	void _create_baked_collision_shape();
+	void _popup_split_dialog();
+	void _create_split_meshes();
 
 protected:
 	void _node_removed(Node *p_node);

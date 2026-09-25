@@ -36,6 +36,7 @@
 #include "csg_height_map_layer.h"
 #include "csg_modifier.h"
 #include "csg_shape.h"
+#include "csg_split_settings.h"
 #include "csg_topology_settings.h"
 
 #include "core/object/class_db.h"
@@ -55,9 +56,12 @@ void initialize_csg_module(ModuleInitializationLevel p_level) {
 		GDREGISTER_CLASS(CSGAttributeModifier);
 		GDREGISTER_CLASS(CSGFaceSemanticModifier);
 		GDREGISTER_CLASS(CSGBevelSettings);
+		GDREGISTER_CLASS(CSGSplitSettings);
 		GDREGISTER_CLASS(CSGTopologySettings);
 		GDREGISTER_ABSTRACT_CLASS(CSGShape3D);
 		GDREGISTER_ABSTRACT_CLASS(CSGPrimitive3D);
+		GDREGISTER_CLASS(CSGCombiner3D);
+		GDREGISTER_CLASS(CSGImprint3D);
 		GDREGISTER_CLASS(CSGMesh3D);
 		GDREGISTER_CLASS(CSGSphere3D);
 		GDREGISTER_CLASS(CSGBox3D);
@@ -65,7 +69,6 @@ void initialize_csg_module(ModuleInitializationLevel p_level) {
 		GDREGISTER_CLASS(CSGCylinder3D);
 		GDREGISTER_CLASS(CSGTorus3D);
 		GDREGISTER_CLASS(CSGPolygon3D);
-		GDREGISTER_CLASS(CSGCombiner3D);
 #ifndef NAVIGATION_3D_DISABLED
 		CSGShape3D::navmesh_parse_init();
 #endif // NAVIGATION_3D_DISABLED

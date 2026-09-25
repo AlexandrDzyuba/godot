@@ -114,6 +114,145 @@ TEST_CASE("[SceneTree][CSG] CSGMesh3D preserves vertex color and custom channels
 	memdelete(csg_mesh);
 }
 
+TEST_CASE("[SceneTree][CSG] CSGImprint3D splits and paints a surface without changing its bounds") {
+	CSGBox3D *terrain = memnew(CSGBox3D);
+	terrain->set_size(Vector3(2, 2, 2));
+	CSGImprint3D *imprint = memnew(CSGImprint3D);
+	CSGBox3D *volume = memnew(CSGBox3D);
+	volume->set_size(Vector3(1, 1, 1));
+	volume->set_position(Vector3(0, 0.75, 0));
+	imprint->add_child(volume);
+
+	Ref<CSGAttributeModifier> paint;
+	paint.instantiate();
+	paint->set_custom_override_enabled(0, true);
+	Ref<CSGModifierChannelOverride> custom = paint->get_custom_override(0);
+	custom->get_red()->set_constant_value(1.0);
+	custom->get_green()->set_source(CSGModifierValue::SOURCE_KEEP_EXISTING);
+	custom->get_blue()->set_source(CSGModifierValue::SOURCE_KEEP_EXISTING);
+	custom->get_alpha()->set_source(CSGModifierValue::SOURCE_KEEP_EXISTING);
+	TypedArray<CSGModifier> modifiers;
+	modifiers.push_back(paint);
+	imprint->set_modifiers(modifiers);
+	terrain->add_child(imprint);
+	SceneTree::get_singleton()->get_root()->add_child(terrain);
+
+	const Vector<Vector3> faces = terrain->get_brush_faces();
+	CHECK(faces.size() > 36);
+	CHECK(terrain->get_aabb().position.is_equal_approx(Vector3(-1, -1, -1)));
+	CHECK(terrain->get_aabb().size.is_equal_approx(Vector3(2, 2, 2)));
+	Ref<CSGGeometryData> geometry = terrain->get_geometry_data();
+	REQUIRE(geometry.is_valid());
+	for (uint8_t boundary : geometry->get_boundary_edges()) {
+		CHECK(boundary == 0);
+	}
+
+	terrain->update_shape();
+	Ref<ArrayMesh> baked_mesh = terrain->bake_static_mesh();
+	REQUIRE(baked_mesh.is_valid());
+	bool found_outside = false;
+	bool found_inside = false;
+	for (int surface = 0; surface < baked_mesh->get_surface_count(); surface++) {
+		const Array arrays = baked_mesh->surface_get_arrays(surface);
+		const PackedVector3Array vertices = arrays[Mesh::ARRAY_VERTEX];
+		const PackedFloat32Array values = arrays[Mesh::ARRAY_CUSTOM0];
+		for (int vertex = 0; vertex * 4 < values.size(); vertex++) {
+			found_outside |= Math::is_zero_approx(values[vertex * 4]);
+			if (Math::is_equal_approx(values[vertex * 4], 1.0f)) {
+				found_inside = true;
+				REQUIRE(vertex < vertices.size());
+				CHECK(vertices[vertex].y == doctest::Approx(1.0));
+				CHECK(Math::abs(vertices[vertex].x) <= 0.50001);
+				CHECK(Math::abs(vertices[vertex].z) <= 0.50001);
+			}
+		}
+	}
+	CHECK(found_outside);
+	CHECK(found_inside);
+
+	SceneTree::get_singleton()->get_root()->remove_child(terrain);
+	memdelete(terrain);
+}
+
+TEST_CASE("[SceneTree][CSG] recursive splitting creates closed meshes and marks cut faces") {
+	CSGBox3D *box = memnew(CSGBox3D);
+	box->set_size(Vector3(2, 2, 2));
+	SceneTree::get_singleton()->get_root()->add_child(box);
+
+	Ref<CSGSplitSettings> settings;
+	settings.instantiate();
+	settings->set_mode(CSGSplitSettings::MODE_BALANCED_GRID);
+	settings->set_iterations(3);
+	settings->set_max_pieces(16);
+	settings->set_decompose_islands(false);
+
+	Ref<CSGAttributeModifier> cut_attributes;
+	cut_attributes.instantiate();
+	cut_attributes->set_custom_override_enabled(0, true);
+	Ref<CSGModifierChannelOverride> custom = cut_attributes->get_custom_override(0);
+	custom->get_red()->set_constant_value(1.0);
+	custom->get_green()->set_source(CSGModifierValue::SOURCE_KEEP_EXISTING);
+	custom->get_blue()->set_source(CSGModifierValue::SOURCE_KEEP_EXISTING);
+	custom->get_alpha()->set_source(CSGModifierValue::SOURCE_KEEP_EXISTING);
+	TypedArray<CSGModifier> cut_modifiers;
+	cut_modifiers.push_back(cut_attributes);
+	settings->set_cut_modifiers(cut_modifiers);
+
+	TypedArray<ArrayMesh> pieces = box->split_meshes(settings);
+	REQUIRE(pieces.size() == 8);
+	real_t total_bounds_volume = 0.0;
+	bool found_original_face = false;
+	bool found_cut_face = false;
+	for (int piece_i = 0; piece_i < pieces.size(); piece_i++) {
+		Ref<ArrayMesh> piece = pieces[piece_i];
+		REQUIRE(piece.is_valid());
+		CHECK(piece->has_meta(SNAME("csg_split_center")));
+		CHECK(piece->get_aabb().get_center().is_zero_approx());
+		CHECK(piece->get_aabb().get_volume() == doctest::Approx(1.0));
+		total_bounds_volume += piece->get_aabb().get_volume();
+		for (int surface = 0; surface < piece->get_surface_count(); surface++) {
+			const Array arrays = piece->surface_get_arrays(surface);
+			const PackedFloat32Array values = arrays[Mesh::ARRAY_CUSTOM0];
+			for (int vertex = 0; vertex * 4 < values.size(); vertex++) {
+				found_original_face |= Math::is_zero_approx(values[vertex * 4]);
+				found_cut_face |= Math::is_equal_approx(values[vertex * 4], 1.0f);
+			}
+		}
+	}
+	CHECK(total_bounds_volume == doctest::Approx(8.0));
+	CHECK(found_original_face);
+	CHECK(found_cut_face);
+
+	SceneTree::get_singleton()->get_root()->remove_child(box);
+	memdelete(box);
+}
+
+TEST_CASE("[SceneTree][CSG] random splitting is deterministic for a seed") {
+	CSGBox3D *box = memnew(CSGBox3D);
+	box->set_size(Vector3(2, 2, 2));
+	SceneTree::get_singleton()->get_root()->add_child(box);
+
+	Ref<CSGSplitSettings> settings;
+	settings.instantiate();
+	settings->set_mode(CSGSplitSettings::MODE_RANDOM_PLANES);
+	settings->set_iterations(2);
+	settings->set_seed(9345);
+	settings->set_decompose_islands(false);
+	TypedArray<ArrayMesh> first = box->split_meshes(settings);
+	TypedArray<ArrayMesh> second = box->split_meshes(settings);
+	REQUIRE(first.size() == second.size());
+	for (int piece_i = 0; piece_i < first.size(); piece_i++) {
+		Ref<ArrayMesh> first_piece = first[piece_i];
+		Ref<ArrayMesh> second_piece = second[piece_i];
+		REQUIRE(first_piece.is_valid());
+		REQUIRE(second_piece.is_valid());
+		CHECK(first_piece->get_aabb().is_equal_approx(second_piece->get_aabb()));
+	}
+
+	SceneTree::get_singleton()->get_root()->remove_child(box);
+	memdelete(box);
+}
+
 TEST_CASE("[SceneTree][CSG] CSGHeightMap3D builds one closed stepped solid") {
 	Ref<Image> image = memnew(Image(2, 1, false, Image::FORMAT_RGBA8));
 	image->set_pixel(0, 0, Color(0, 0, 0, 1));

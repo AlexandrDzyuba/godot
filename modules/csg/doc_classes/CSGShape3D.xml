@@ -80,6 +80,14 @@
 				Based on [param value], enables or disables the specified layer in the [member collision_mask], given a [param layer_number] between 1 and 32.
 			</description>
 		</method>
+		<method name="split_meshes">
+			<return type="Array[ArrayMesh]" />
+			<param index="0" name="settings" type="CSGSplitSettings" default="null" />
+			<description>
+				Recursively splits this node's completed CSG result and returns every closed piece as a separate [ArrayMesh]. Vertex colors, CUSTOM0 through CUSTOM3, UVs, and materials are preserved. Each mesh stores its position relative to the source CSG node as [code]csg_split_center[/code] metadata; see [member CSGSplitSettings.part_center]. If [param settings] is [code]null[/code], [member split_settings] is used, or default settings when that property is also empty.
+				This method does not modify the scene tree. In the editor, [b]CSG &gt; Create Split Meshes[/b] creates a sibling [Node3D] containing a [MeshInstance3D] for every returned piece.
+			</description>
+		</method>
 	</methods>
 	<members>
 		<member name="autosmooth" type="bool" setter="set_autosmooth" getter="is_autosmooth" default="false">
@@ -115,6 +123,9 @@
 		</member>
 		<member name="snap" type="float" setter="set_snap" getter="get_snap" deprecated="The CSG library no longer uses snapping.">
 			This property does nothing.
+		</member>
+		<member name="split_settings" type="CSGSplitSettings" setter="set_split_settings" getter="get_split_settings">
+			Optional default settings used by [method split_meshes]. The editor's [b]Create Split Meshes[/b] command opens a configuration dialog initialized from this resource and stores the confirmed settings back on the node.
 		</member>
 		<member name="topology_settings" type="CSGTopologySettings" setter="set_topology_settings" getter="get_topology_settings">
 			Optional topology processing applied after this shape's child Boolean operations and before its result modifier stack. If unset or configured with [constant CSGTopologySettings.TOPOLOGY_NONE], the normal CSG build path is unchanged.
