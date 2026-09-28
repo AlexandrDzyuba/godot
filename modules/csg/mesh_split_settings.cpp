@@ -70,6 +70,7 @@ void MeshSplitSettings::_bind_methods() {
 	}
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "part_center", PROPERTY_HINT_ENUM, "Original Center,AABB Center,Top,Bottom,X Front,Y Front,Z Front,X Back,Y Back,Z Back"), "set_part_center", "get_part_center");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "output", PROPERTY_HINT_ENUM, "Meshes,Meshes with Rigid Bodies", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_UPDATE_ALL_IF_MODIFIED), "set_output", "get_output");
+	ADD_GROUP("Rigid Body Initial Velocity", "linear_");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "linear_velocity_mode", PROPERTY_HINT_ENUM, "None,Constant,From Object Center,From Split Planes", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_UPDATE_ALL_IF_MODIFIED), "set_linear_velocity_mode", "get_linear_velocity_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "linear_velocity", PROPERTY_HINT_NONE, "suffix:m/s"), "set_linear_velocity", "get_linear_velocity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "linear_speed", PROPERTY_HINT_RANGE, "0,1000,0.01,or_greater,suffix:m/s"), "set_linear_speed", "get_linear_speed");
@@ -106,9 +107,7 @@ void MeshSplitSettings::_validate_property(PropertyInfo &p_property) const {
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 		}
 	}
-	if ((p_property.name == "linear_velocity_mode" || p_property.name == "linear_velocity" || p_property.name == "linear_speed") && output != OUTPUT_RIGID_BODIES) {
-		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
-	} else if (p_property.name == "linear_velocity" && linear_velocity_mode != LINEAR_VELOCITY_CONSTANT) {
+	if (p_property.name == "linear_velocity" && linear_velocity_mode != LINEAR_VELOCITY_CONSTANT) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 	} else if (p_property.name == "linear_speed" && linear_velocity_mode != LINEAR_VELOCITY_FROM_OBJECT_CENTER && linear_velocity_mode != LINEAR_VELOCITY_FROM_SPLIT_PLANES) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR;

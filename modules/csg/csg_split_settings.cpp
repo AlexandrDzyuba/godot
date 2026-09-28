@@ -56,6 +56,12 @@ void CSGSplitSettings::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_part_center"), &CSGSplitSettings::get_part_center);
 	ClassDB::bind_method(D_METHOD("set_output", "output"), &CSGSplitSettings::set_output);
 	ClassDB::bind_method(D_METHOD("get_output"), &CSGSplitSettings::get_output);
+	ClassDB::bind_method(D_METHOD("set_linear_velocity_mode", "mode"), &CSGSplitSettings::set_linear_velocity_mode);
+	ClassDB::bind_method(D_METHOD("get_linear_velocity_mode"), &CSGSplitSettings::get_linear_velocity_mode);
+	ClassDB::bind_method(D_METHOD("set_linear_velocity", "velocity"), &CSGSplitSettings::set_linear_velocity);
+	ClassDB::bind_method(D_METHOD("get_linear_velocity"), &CSGSplitSettings::get_linear_velocity);
+	ClassDB::bind_method(D_METHOD("set_linear_speed", "speed"), &CSGSplitSettings::set_linear_speed);
+	ClassDB::bind_method(D_METHOD("get_linear_speed"), &CSGSplitSettings::get_linear_speed);
 	ClassDB::bind_method(D_METHOD("set_cut_uv_scale", "scale"), &CSGSplitSettings::set_cut_uv_scale);
 	ClassDB::bind_method(D_METHOD("get_cut_uv_scale"), &CSGSplitSettings::get_cut_uv_scale);
 	ClassDB::bind_method(D_METHOD("set_cut_modifiers", "modifiers"), &CSGSplitSettings::set_cut_modifiers);
@@ -74,6 +80,10 @@ void CSGSplitSettings::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "output", PROPERTY_HINT_ENUM, "Meshes,Meshes with Rigid Bodies"), "set_output", "get_output");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "cut_uv_scale", PROPERTY_HINT_RANGE, "0.0001,10000,0.01,or_greater"), "set_cut_uv_scale", "get_cut_uv_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "cut_modifiers", PROPERTY_HINT_ARRAY_TYPE, MAKE_RESOURCE_TYPE_HINT("CSGModifier")), "set_cut_modifiers", "get_cut_modifiers");
+	ADD_GROUP("Rigid Body Initial Velocity", "linear_");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "linear_velocity_mode", PROPERTY_HINT_ENUM, "None,Constant,From Object Center,From Split Planes", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_UPDATE_ALL_IF_MODIFIED), "set_linear_velocity_mode", "get_linear_velocity_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "linear_velocity", PROPERTY_HINT_NONE, "suffix:m/s"), "set_linear_velocity", "get_linear_velocity");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "linear_speed", PROPERTY_HINT_RANGE, "0,1000,0.01,or_greater,suffix:m/s"), "set_linear_speed", "get_linear_speed");
 
 	BIND_ENUM_CONSTANT(MODE_BALANCED_GRID);
 	BIND_ENUM_CONSTANT(MODE_RANDOM_PLANES);
@@ -91,10 +101,19 @@ void CSGSplitSettings::_bind_methods() {
 
 	BIND_ENUM_CONSTANT(OUTPUT_MESHES);
 	BIND_ENUM_CONSTANT(OUTPUT_RIGID_BODIES);
+	BIND_ENUM_CONSTANT(LINEAR_VELOCITY_NONE);
+	BIND_ENUM_CONSTANT(LINEAR_VELOCITY_CONSTANT);
+	BIND_ENUM_CONSTANT(LINEAR_VELOCITY_FROM_OBJECT_CENTER);
+	BIND_ENUM_CONSTANT(LINEAR_VELOCITY_FROM_SPLIT_PLANES);
 }
 
 void CSGSplitSettings::_validate_property(PropertyInfo &p_property) const {
 	if ((p_property.name == "rotation_jitter" || p_property.name == "offset_jitter" || p_property.name == "retry_count") && mode != MODE_RANDOM_PLANES) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+	}
+	if (p_property.name == "linear_velocity" && linear_velocity_mode != LINEAR_VELOCITY_CONSTANT) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+	} else if (p_property.name == "linear_speed" && linear_velocity_mode != LINEAR_VELOCITY_FROM_OBJECT_CENTER && linear_velocity_mode != LINEAR_VELOCITY_FROM_SPLIT_PLANES) {
 		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 	}
 }
@@ -191,6 +210,39 @@ void CSGSplitSettings::set_output(Output p_output) {
 }
 CSGSplitSettings::Output CSGSplitSettings::get_output() const {
 	return output;
+}
+void CSGSplitSettings::set_linear_velocity_mode(LinearVelocityMode p_mode) {
+	ERR_FAIL_INDEX(int(p_mode), int(LINEAR_VELOCITY_FROM_SPLIT_PLANES) + 1);
+	if (linear_velocity_mode == p_mode) {
+		return;
+	}
+	linear_velocity_mode = p_mode;
+	notify_property_list_changed();
+	emit_changed();
+}
+CSGSplitSettings::LinearVelocityMode CSGSplitSettings::get_linear_velocity_mode() const {
+	return linear_velocity_mode;
+}
+void CSGSplitSettings::set_linear_velocity(const Vector3 &p_velocity) {
+	if (linear_velocity == p_velocity) {
+		return;
+	}
+	linear_velocity = p_velocity;
+	emit_changed();
+}
+Vector3 CSGSplitSettings::get_linear_velocity() const {
+	return linear_velocity;
+}
+void CSGSplitSettings::set_linear_speed(real_t p_speed) {
+	p_speed = MAX(p_speed, real_t(0.0));
+	if (Math::is_equal_approx(linear_speed, p_speed)) {
+		return;
+	}
+	linear_speed = p_speed;
+	emit_changed();
+}
+real_t CSGSplitSettings::get_linear_speed() const {
+	return linear_speed;
 }
 real_t CSGSplitSettings::get_cut_uv_scale() const {
 	return cut_uv_scale;

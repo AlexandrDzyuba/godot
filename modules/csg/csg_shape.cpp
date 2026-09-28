@@ -1647,6 +1647,7 @@ struct CSGSplitPlane {
 struct CSGSplitPiece {
 	manifold::Manifold geometry;
 	Vector<CSGSplitPlane> cut_planes;
+	Vector3 split_direction;
 };
 
 static Vector3 _csg_split_balanced_normal(const manifold::Box &p_bounds) {
@@ -1823,7 +1824,7 @@ TypedArray<ArrayMesh> CSGShape3D::split_meshes(const Ref<CSGSplitSettings> &p_se
 	}
 
 	std::vector<CSGSplitPiece> pieces;
-	pieces.push_back({ std::move(source), Vector<CSGSplitPlane>() });
+	pieces.push_back({ std::move(source), Vector<CSGSplitPlane>(), Vector3() });
 	RandomPCG rng(settings->get_seed());
 	for (int iteration = 0; iteration < settings->get_iterations(); iteration++) {
 		std::vector<CSGSplitPiece> next_pieces;
@@ -1857,8 +1858,8 @@ TypedArray<ArrayMesh> CSGShape3D::split_meshes(const Ref<CSGSplitSettings> &p_se
 
 				Vector<CSGSplitPlane> child_planes = piece.cut_planes;
 				child_planes.push_back({ normal, offset });
-				next_pieces.push_back({ std::move(positive), child_planes });
-				next_pieces.push_back({ std::move(negative), child_planes });
+				next_pieces.push_back({ std::move(positive), child_planes, piece.split_direction + normal });
+				next_pieces.push_back({ std::move(negative), child_planes, piece.split_direction - normal });
 				was_split = true;
 				break;
 			}
@@ -1875,7 +1876,7 @@ TypedArray<ArrayMesh> CSGShape3D::split_meshes(const Ref<CSGSplitSettings> &p_se
 			std::vector<manifold::Manifold> islands = piece.geometry.Decompose();
 			if (islands.size() > 1 && decomposed.size() + islands.size() <= size_t(settings->get_max_pieces())) {
 				for (manifold::Manifold &island : islands) {
-					decomposed.push_back({ std::move(island), piece.cut_planes });
+					decomposed.push_back({ std::move(island), piece.cut_planes, piece.split_direction });
 				}
 			} else {
 				decomposed.push_back(std::move(piece));
@@ -1897,6 +1898,7 @@ TypedArray<ArrayMesh> CSGShape3D::split_meshes(const Ref<CSGSplitSettings> &p_se
 		Ref<ArrayMesh> mesh = _build_array_mesh(&piece_brush);
 		if (mesh.is_valid() && mesh->get_surface_count() > 0) {
 			mesh->set_meta(SNAME("csg_split_center"), part_center);
+			mesh->set_meta(SNAME("csg_split_direction"), piece.split_direction.normalized());
 			result.push_back(mesh);
 		}
 	}

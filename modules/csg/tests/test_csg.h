@@ -209,6 +209,9 @@ TEST_CASE("[SceneTree][CSG] recursive splitting creates closed meshes and marks 
 		Ref<ArrayMesh> piece = pieces[piece_i];
 		REQUIRE(piece.is_valid());
 		CHECK(piece->has_meta(SNAME("csg_split_center")));
+		CHECK(piece->has_meta(SNAME("csg_split_direction")));
+		const Vector3 split_direction = piece->get_meta(SNAME("csg_split_direction"), Vector3());
+		CHECK(split_direction.length() == doctest::Approx(1.0));
 		CHECK(piece->get_aabb().get_center().is_zero_approx());
 		CHECK(piece->get_aabb().get_volume() == doctest::Approx(1.0));
 		total_bounds_volume += piece->get_aabb().get_volume();

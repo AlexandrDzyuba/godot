@@ -58,6 +58,12 @@ public:
 		OUTPUT_MESHES,
 		OUTPUT_RIGID_BODIES,
 	};
+	enum LinearVelocityMode {
+		LINEAR_VELOCITY_NONE,
+		LINEAR_VELOCITY_CONSTANT,
+		LINEAR_VELOCITY_FROM_OBJECT_CENTER,
+		LINEAR_VELOCITY_FROM_SPLIT_PLANES,
+	};
 
 private:
 	Mode mode = MODE_BALANCED_GRID;
@@ -71,6 +77,9 @@ private:
 	bool decompose_islands = true;
 	PartCenter part_center = PART_CENTER_AABB;
 	Output output = OUTPUT_MESHES;
+	LinearVelocityMode linear_velocity_mode = LINEAR_VELOCITY_NONE;
+	Vector3 linear_velocity;
+	real_t linear_speed = 1.0;
 	real_t cut_uv_scale = 1.0;
 	TypedArray<CSGModifier> cut_modifiers;
 
@@ -103,6 +112,12 @@ public:
 	PartCenter get_part_center() const;
 	void set_output(Output p_output);
 	Output get_output() const;
+	void set_linear_velocity_mode(LinearVelocityMode p_mode);
+	LinearVelocityMode get_linear_velocity_mode() const;
+	void set_linear_velocity(const Vector3 &p_velocity);
+	Vector3 get_linear_velocity() const;
+	void set_linear_speed(real_t p_speed);
+	real_t get_linear_speed() const;
 	void set_cut_uv_scale(real_t p_scale);
 	real_t get_cut_uv_scale() const;
 	void set_cut_modifiers(const TypedArray<CSGModifier> &p_modifiers);
@@ -112,3 +127,4 @@ public:
 VARIANT_ENUM_CAST(CSGSplitSettings::Mode);
 VARIANT_ENUM_CAST(CSGSplitSettings::PartCenter);
 VARIANT_ENUM_CAST(CSGSplitSettings::Output);
+VARIANT_ENUM_CAST(CSGSplitSettings::LinearVelocityMode);

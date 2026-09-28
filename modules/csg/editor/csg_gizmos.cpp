@@ -211,16 +211,42 @@ void CSGShapeEditor::_create_split_meshes() {
 	Node3D *container = memnew(Node3D);
 	container->set_name(String(node->get_name()) + "_Splits");
 	container->set_transform(node->get_transform());
+	const Vector3 source_center = node->get_aabb().get_center();
+	const Basis source_global_basis = node->get_global_transform().basis;
 	for (int piece_i = 0; piece_i < meshes.size(); piece_i++) {
 		Ref<ArrayMesh> mesh = meshes[piece_i];
 		if (mesh.is_null()) {
 			continue;
 		}
 		const Vector3 part_center = mesh->get_meta(SNAME("csg_split_center"), Vector3());
+		const Vector3 split_direction = mesh->get_meta(SNAME("csg_split_direction"), Vector3());
+		mesh->remove_meta(SNAME("csg_split_direction"));
 		if (split_dialog_settings->get_output() == CSGSplitSettings::OUTPUT_RIGID_BODIES) {
 			RigidBody3D *piece = memnew(RigidBody3D);
 			piece->set_name(vformat("Piece_%04d", piece_i));
 			piece->set_position(part_center);
+			Vector3 velocity;
+			switch (split_dialog_settings->get_linear_velocity_mode()) {
+				case CSGSplitSettings::LINEAR_VELOCITY_CONSTANT: {
+					velocity = split_dialog_settings->get_linear_velocity();
+				} break;
+				case CSGSplitSettings::LINEAR_VELOCITY_FROM_OBJECT_CENTER: {
+					const Vector3 piece_center = mesh->get_aabb().get_center() + part_center;
+					const Vector3 local_direction = (piece_center - source_center).normalized();
+					velocity = source_global_basis.xform(local_direction).normalized() * split_dialog_settings->get_linear_speed();
+				} break;
+				case CSGSplitSettings::LINEAR_VELOCITY_FROM_SPLIT_PLANES: {
+					Vector3 local_direction = split_direction;
+					if (local_direction.is_zero_approx()) {
+						const Vector3 piece_center = mesh->get_aabb().get_center() + part_center;
+						local_direction = (piece_center - source_center).normalized();
+					}
+					velocity = source_global_basis.xform(local_direction).normalized() * split_dialog_settings->get_linear_speed();
+				} break;
+				case CSGSplitSettings::LINEAR_VELOCITY_NONE:
+					break;
+			}
+			piece->set_linear_velocity(velocity);
 			container->add_child(piece);
 
 			MeshInstance3D *mesh_instance = memnew(MeshInstance3D);

@@ -19,6 +19,15 @@
 		<member name="iterations" type="int" setter="set_iterations" getter="get_iterations" default="3">
 			Recursive split depth in the range 0 through 10. A value of 3 can produce up to 8 pieces.
 		</member>
+		<member name="linear_speed" type="float" setter="set_linear_speed" getter="get_linear_speed" default="1.0">
+			Initial speed assigned to generated rigid bodies when [member linear_velocity_mode] derives a direction from the object center or split planes.
+		</member>
+		<member name="linear_velocity" type="Vector3" setter="set_linear_velocity" getter="get_linear_velocity" default="Vector3(0, 0, 0)">
+			Shared world-space velocity assigned when [member linear_velocity_mode] is [constant LINEAR_VELOCITY_CONSTANT].
+		</member>
+		<member name="linear_velocity_mode" type="int" setter="set_linear_velocity_mode" getter="get_linear_velocity_mode" enum="CSGSplitSettings.LinearVelocityMode" default="0">
+			Controls the initial linear velocity assigned when [member output] creates rigid bodies.
+		</member>
 		<member name="max_pieces" type="int" setter="set_max_pieces" getter="get_max_pieces" default="256">
 			Hard upper bound for the number of generated pieces.
 		</member>
@@ -89,6 +98,16 @@
 		</constant>
 		<constant name="OUTPUT_RIGID_BODIES" value="1" enum="Output">
 			Creates one [RigidBody3D] per generated part, with a mesh child and a single convex collision shape.
+		</constant>
+		<constant name="LINEAR_VELOCITY_NONE" value="0" enum="LinearVelocityMode" />
+		<constant name="LINEAR_VELOCITY_CONSTANT" value="1" enum="LinearVelocityMode">
+			Uses [member linear_velocity] as a shared world-space velocity for every rigid body.
+		</constant>
+		<constant name="LINEAR_VELOCITY_FROM_OBJECT_CENTER" value="2" enum="LinearVelocityMode">
+			Moves each rigid body away from the source CSG result's local AABB center at [member linear_speed].
+		</constant>
+		<constant name="LINEAR_VELOCITY_FROM_SPLIT_PLANES" value="3" enum="LinearVelocityMode">
+			Uses the accumulated outward directions of the planes that created each piece. Falls back to the object-center direction when necessary.
 		</constant>
 	</constants>
 </class>
