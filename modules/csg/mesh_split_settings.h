@@ -36,6 +36,12 @@ public:
 		OUTPUT_MESHES,
 		OUTPUT_RIGID_BODIES,
 	};
+	enum LinearVelocityMode {
+		LINEAR_VELOCITY_NONE,
+		LINEAR_VELOCITY_CONSTANT,
+		LINEAR_VELOCITY_FROM_OBJECT_CENTER,
+		LINEAR_VELOCITY_FROM_SPLIT_PLANES,
+	};
 
 private:
 	Mode mode = MODE_BALANCED_GRID;
@@ -56,6 +62,9 @@ private:
 	Vector4 cap_custom[4];
 	PartCenter part_center = PART_CENTER_AABB;
 	Output output = OUTPUT_MESHES;
+	LinearVelocityMode linear_velocity_mode = LINEAR_VELOCITY_NONE;
+	Vector3 linear_velocity;
+	real_t linear_speed = 1.0;
 
 protected:
 	static void _bind_methods();
@@ -98,9 +107,16 @@ public:
 	PartCenter get_part_center() const;
 	void set_output(Output p_output);
 	Output get_output() const;
+	void set_linear_velocity_mode(LinearVelocityMode p_mode);
+	LinearVelocityMode get_linear_velocity_mode() const;
+	void set_linear_velocity(const Vector3 &p_velocity);
+	Vector3 get_linear_velocity() const;
+	void set_linear_speed(real_t p_speed);
+	real_t get_linear_speed() const;
 };
 
 VARIANT_ENUM_CAST(MeshSplitSettings::Mode);
 VARIANT_ENUM_CAST(MeshSplitSettings::CapMode);
 VARIANT_ENUM_CAST(MeshSplitSettings::PartCenter);
 VARIANT_ENUM_CAST(MeshSplitSettings::Output);
+VARIANT_ENUM_CAST(MeshSplitSettings::LinearVelocityMode);

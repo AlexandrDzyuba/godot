@@ -13,7 +13,7 @@
 			<param index="0" name="mesh" type="Mesh" />
 			<param index="1" name="settings" type="MeshSplitSettings" default="null" />
 			<description>
-				Recursively splits [param mesh]. Every returned mesh stores its original local-space pivot in [code]split_center[/code] metadata. Adding this position to its vertices reconstructs the source placement.
+				Recursively splits [param mesh]. Every returned mesh stores its original local-space pivot in [code]split_center[/code] metadata. Adding this position to its vertices reconstructs the source placement. The normalized sum of the outward planes that created the piece is stored in [code]split_direction[/code].
 			</description>
 		</method>
 	</methods>

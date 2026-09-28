@@ -44,6 +44,7 @@ struct SplitSurface {
 
 struct SplitPiece {
 	Vector<SplitSurface> surfaces;
+	Vector3 split_direction;
 };
 
 struct CutSegment {
@@ -386,6 +387,8 @@ static bool _split_piece(const SplitPiece &p_piece, const Plane &p_plane, const 
 	const Vector<Vector<Vector3>> contours = _build_cut_contours(segments, epsilon, p_settings->get_cap_mode());
 	_add_caps(r_positive, contours, p_plane.normal, p_settings, true);
 	_add_caps(r_negative, contours, p_plane.normal, p_settings, false);
+	r_positive.split_direction = p_piece.split_direction + p_plane.normal;
+	r_negative.split_direction = p_piece.split_direction - p_plane.normal;
 	return true;
 }
 
@@ -639,6 +642,7 @@ static Vector<SplitPiece> _decompose_piece(const SplitPiece &p_piece, real_t p_t
 		if (!component_index) {
 			SplitPiece component;
 			component.surfaces = p_piece.surfaces;
+			component.split_direction = p_piece.split_direction;
 			for (SplitSurface &surface : component.surfaces) {
 				surface.triangles.clear();
 			}
@@ -759,6 +763,7 @@ static Ref<ArrayMesh> _build_mesh(SplitPiece p_piece, MeshSplitSettings::PartCen
 		mesh->surface_set_name(output_surface, surface.name);
 	}
 	mesh->set_meta(SNAME("split_center"), center);
+	mesh->set_meta(SNAME("split_direction"), p_piece.split_direction.normalized());
 	return mesh;
 }
 

@@ -331,9 +331,13 @@ TEST_CASE("[CSG][MeshSplitter] generated cap winding agrees with cap normals") {
 	REQUIRE(pieces.size() == 2);
 
 	bool found_caps = false;
+	Vector<Vector3> split_directions;
 	for (int piece_index = 0; piece_index < pieces.size(); piece_index++) {
 		Ref<ArrayMesh> piece = pieces[piece_index];
 		REQUIRE(piece.is_valid());
+		const Vector3 split_direction = piece->get_meta(SNAME("split_direction"), Vector3());
+		CHECK(split_direction.length() == doctest::Approx(1.0));
+		split_directions.push_back(split_direction);
 		for (int surface = 0; surface < piece->get_surface_count(); surface++) {
 			if (piece->surface_get_name(surface) != "SplitCaps") {
 				continue;
@@ -355,6 +359,8 @@ TEST_CASE("[CSG][MeshSplitter] generated cap winding agrees with cap normals") {
 		}
 	}
 	CHECK(found_caps);
+	REQUIRE(split_directions.size() == 2);
+	CHECK(split_directions[0].dot(split_directions[1]) < -0.999);
 }
 
 TEST_CASE("[SceneTree][CSG] CSGHeightMap3D builds one closed stepped solid") {

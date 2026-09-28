@@ -164,16 +164,42 @@ void MeshSplitterEditor::_create_parts() {
 	Node3D *container = memnew(Node3D);
 	container->set_name(String(node->get_name()) + "_Splits");
 	container->set_transform(node->get_transform());
+	const Vector3 source_center = node->get_mesh()->get_aabb().get_center();
+	const Basis source_global_basis = node->get_global_transform().basis;
 	for (int piece_i = 0; piece_i < meshes.size(); piece_i++) {
 		Ref<ArrayMesh> mesh = meshes[piece_i];
 		if (mesh.is_null()) {
 			continue;
 		}
 		const Vector3 center = mesh->get_meta(SNAME("split_center"), Vector3());
+		const Vector3 split_direction = mesh->get_meta(SNAME("split_direction"), Vector3());
+		mesh->remove_meta(SNAME("split_direction"));
 		if (settings->get_output() == MeshSplitSettings::OUTPUT_RIGID_BODIES) {
 			RigidBody3D *body = memnew(RigidBody3D);
 			body->set_name(vformat("Piece_%04d", piece_i));
 			body->set_position(center);
+			Vector3 velocity;
+			switch (settings->get_linear_velocity_mode()) {
+				case MeshSplitSettings::LINEAR_VELOCITY_CONSTANT: {
+					velocity = settings->get_linear_velocity();
+				} break;
+				case MeshSplitSettings::LINEAR_VELOCITY_FROM_OBJECT_CENTER: {
+					const Vector3 piece_center = mesh->get_aabb().get_center() + center;
+					const Vector3 local_direction = (piece_center - source_center).normalized();
+					velocity = source_global_basis.xform(local_direction).normalized() * settings->get_linear_speed();
+				} break;
+				case MeshSplitSettings::LINEAR_VELOCITY_FROM_SPLIT_PLANES: {
+					Vector3 local_direction = split_direction;
+					if (local_direction.is_zero_approx()) {
+						const Vector3 piece_center = mesh->get_aabb().get_center() + center;
+						local_direction = (piece_center - source_center).normalized();
+					}
+					velocity = source_global_basis.xform(local_direction).normalized() * settings->get_linear_speed();
+				} break;
+				case MeshSplitSettings::LINEAR_VELOCITY_NONE:
+					break;
+			}
+			body->set_linear_velocity(velocity);
 			container->add_child(body);
 			MeshInstance3D *mesh_instance = memnew(MeshInstance3D);
 			mesh_instance->set_name("Mesh");

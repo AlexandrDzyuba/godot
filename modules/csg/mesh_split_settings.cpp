@@ -43,6 +43,12 @@ void MeshSplitSettings::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_part_center"), &MeshSplitSettings::get_part_center);
 	ClassDB::bind_method(D_METHOD("set_output", "output"), &MeshSplitSettings::set_output);
 	ClassDB::bind_method(D_METHOD("get_output"), &MeshSplitSettings::get_output);
+	ClassDB::bind_method(D_METHOD("set_linear_velocity_mode", "mode"), &MeshSplitSettings::set_linear_velocity_mode);
+	ClassDB::bind_method(D_METHOD("get_linear_velocity_mode"), &MeshSplitSettings::get_linear_velocity_mode);
+	ClassDB::bind_method(D_METHOD("set_linear_velocity", "velocity"), &MeshSplitSettings::set_linear_velocity);
+	ClassDB::bind_method(D_METHOD("get_linear_velocity"), &MeshSplitSettings::get_linear_velocity);
+	ClassDB::bind_method(D_METHOD("set_linear_speed", "speed"), &MeshSplitSettings::set_linear_speed);
+	ClassDB::bind_method(D_METHOD("get_linear_speed"), &MeshSplitSettings::get_linear_speed);
 
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "mode", PROPERTY_HINT_ENUM, "Balanced Grid,Random Planes", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_UPDATE_ALL_IF_MODIFIED), "set_mode", "get_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "iterations", PROPERTY_HINT_RANGE, "0,10,1"), "set_iterations", "get_iterations");
@@ -63,7 +69,10 @@ void MeshSplitSettings::_bind_methods() {
 		ADD_PROPERTYI(PropertyInfo(Variant::VECTOR4, vformat("cap_custom%d", channel)), "set_cap_custom", "get_cap_custom", channel);
 	}
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "part_center", PROPERTY_HINT_ENUM, "Original Center,AABB Center,Top,Bottom,X Front,Y Front,Z Front,X Back,Y Back,Z Back"), "set_part_center", "get_part_center");
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "output", PROPERTY_HINT_ENUM, "Meshes,Meshes with Rigid Bodies"), "set_output", "get_output");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "output", PROPERTY_HINT_ENUM, "Meshes,Meshes with Rigid Bodies", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_UPDATE_ALL_IF_MODIFIED), "set_output", "get_output");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "linear_velocity_mode", PROPERTY_HINT_ENUM, "None,Constant,From Object Center,From Split Planes", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_UPDATE_ALL_IF_MODIFIED), "set_linear_velocity_mode", "get_linear_velocity_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "linear_velocity", PROPERTY_HINT_NONE, "suffix:m/s"), "set_linear_velocity", "get_linear_velocity");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "linear_speed", PROPERTY_HINT_RANGE, "0,1000,0.01,or_greater,suffix:m/s"), "set_linear_speed", "get_linear_speed");
 
 	BIND_ENUM_CONSTANT(MODE_BALANCED_GRID);
 	BIND_ENUM_CONSTANT(MODE_RANDOM_PLANES);
@@ -82,6 +91,10 @@ void MeshSplitSettings::_bind_methods() {
 	BIND_ENUM_CONSTANT(PART_CENTER_Z_BACK);
 	BIND_ENUM_CONSTANT(OUTPUT_MESHES);
 	BIND_ENUM_CONSTANT(OUTPUT_RIGID_BODIES);
+	BIND_ENUM_CONSTANT(LINEAR_VELOCITY_NONE);
+	BIND_ENUM_CONSTANT(LINEAR_VELOCITY_CONSTANT);
+	BIND_ENUM_CONSTANT(LINEAR_VELOCITY_FROM_OBJECT_CENTER);
+	BIND_ENUM_CONSTANT(LINEAR_VELOCITY_FROM_SPLIT_PLANES);
 }
 
 void MeshSplitSettings::_validate_property(PropertyInfo &p_property) const {
@@ -92,6 +105,13 @@ void MeshSplitSettings::_validate_property(PropertyInfo &p_property) const {
 		if (p_property.name == vformat("cap_custom%d", channel) && !cap_custom_enabled[channel]) {
 			p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 		}
+	}
+	if ((p_property.name == "linear_velocity_mode" || p_property.name == "linear_velocity" || p_property.name == "linear_speed") && output != OUTPUT_RIGID_BODIES) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+	} else if (p_property.name == "linear_velocity" && linear_velocity_mode != LINEAR_VELOCITY_CONSTANT) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
+	} else if (p_property.name == "linear_speed" && linear_velocity_mode != LINEAR_VELOCITY_FROM_OBJECT_CENTER && linear_velocity_mode != LINEAR_VELOCITY_FROM_SPLIT_PLANES) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 	}
 }
 
@@ -218,9 +238,42 @@ MeshSplitSettings::PartCenter MeshSplitSettings::get_part_center() const {
 }
 void MeshSplitSettings::set_output(Output p_output) {
 	ERR_FAIL_INDEX(int(p_output), int(OUTPUT_RIGID_BODIES) + 1);
-	output = p_output;
-	emit_changed();
+	if (output != p_output) {
+		output = p_output;
+		notify_property_list_changed();
+		emit_changed();
+	}
 }
 MeshSplitSettings::Output MeshSplitSettings::get_output() const {
 	return output;
+}
+void MeshSplitSettings::set_linear_velocity_mode(LinearVelocityMode p_mode) {
+	ERR_FAIL_INDEX(int(p_mode), int(LINEAR_VELOCITY_FROM_SPLIT_PLANES) + 1);
+	if (linear_velocity_mode != p_mode) {
+		linear_velocity_mode = p_mode;
+		notify_property_list_changed();
+		emit_changed();
+	}
+}
+MeshSplitSettings::LinearVelocityMode MeshSplitSettings::get_linear_velocity_mode() const {
+	return linear_velocity_mode;
+}
+void MeshSplitSettings::set_linear_velocity(const Vector3 &p_velocity) {
+	if (linear_velocity != p_velocity) {
+		linear_velocity = p_velocity;
+		emit_changed();
+	}
+}
+Vector3 MeshSplitSettings::get_linear_velocity() const {
+	return linear_velocity;
+}
+void MeshSplitSettings::set_linear_speed(real_t p_speed) {
+	p_speed = MAX(p_speed, real_t(0.0));
+	if (!Math::is_equal_approx(linear_speed, p_speed)) {
+		linear_speed = p_speed;
+		emit_changed();
+	}
+}
+real_t MeshSplitSettings::get_linear_speed() const {
+	return linear_speed;
 }
