@@ -112,6 +112,7 @@ class CommandQueueMT {
 	BinaryMutex mutex;
 	LocalVector<uint8_t> command_mem;
 	ConditionVariable sync_cond_var;
+	ConditionVariable flush_cond_var;
 	uint32_t sync_head = 0;
 	uint32_t sync_tail = 0;
 	uint32_t sync_awaiters = 0;
@@ -167,12 +168,12 @@ class CommandQueueMT {
 
 		MutexLock lock(mutex);
 
-		if (unlikely(flush_read_ptr)) {
-			// Another thread is flushing.
-			lock.temp_unlock(); // Not really temp.
-			sync();
-			flushing = false;
-			return;
+		while (unlikely(flush_read_ptr)) {
+			// Another thread is flushing. Wait for it to finish, then take over
+			// instead of enqueueing a synchronous no-op. The latter can lose the
+			// physics pump wakeup while the server is in its sync window, leaving
+			// both the caller and the pump asleep indefinitely.
+			flush_cond_var.wait(lock);
 		}
 
 		alignas(uint64_t) char cmd_local_mem[MAX_COMMAND_SIZE];
@@ -207,6 +208,7 @@ class CommandQueueMT {
 		command_mem.clear();
 		pending.store(false);
 		flush_read_ptr = 0;
+		flush_cond_var.notify_all();
 
 		_prevent_sync_wraparound();
 

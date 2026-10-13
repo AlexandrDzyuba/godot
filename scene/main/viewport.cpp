@@ -5540,19 +5540,30 @@ void Viewport::_validate_property(PropertyInfo &p_property) const {
 }
 
 Viewport::Viewport() {
+	print_verbose("Viewport startup: constructor entered");
+	print_verbose("Viewport startup: creating World2D");
 	world_2d.instantiate();
+	print_verbose("Viewport startup: registering World2D viewport");
 	world_2d->register_viewport(this);
+	print_verbose("Viewport startup: World2D configured");
 
+	print_verbose("Viewport startup: calling RenderingServer::viewport_create");
 	viewport = RenderingServer::get_singleton()->viewport_create();
+	print_verbose("Viewport startup: RenderingServer::viewport_create completed");
+	print_verbose("Viewport startup: calling RenderingServer::viewport_get_texture");
 	texture_rid = RenderingServer::get_singleton()->viewport_get_texture(viewport);
+	print_verbose("Viewport startup: RenderingServer::viewport_get_texture completed");
 
 	default_texture.instantiate();
 	default_texture->vp = this;
 	viewport_textures.insert(default_texture.ptr());
+	print_verbose("Viewport startup: calling RenderingServer::texture_proxy_create");
 	default_texture->proxy = RS::get_singleton()->texture_proxy_create(texture_rid);
+	print_verbose("Viewport startup: RenderingServer::texture_proxy_create completed");
 
 	canvas_layers.insert(nullptr); // This eases picking code (interpreted as the canvas of the Viewport).
 
+	print_verbose("Viewport startup: configuring positional shadow atlas");
 	set_positional_shadow_atlas_size(positional_shadow_atlas_size);
 
 	for (int i = 0; i < 4; i++) {
@@ -5562,8 +5573,10 @@ Viewport::Viewport() {
 	set_positional_shadow_atlas_quadrant_subdiv(1, SHADOW_ATLAS_QUADRANT_SUBDIV_4);
 	set_positional_shadow_atlas_quadrant_subdiv(2, SHADOW_ATLAS_QUADRANT_SUBDIV_16);
 	set_positional_shadow_atlas_quadrant_subdiv(3, SHADOW_ATLAS_QUADRANT_SUBDIV_64);
+	print_verbose("Viewport startup: positional shadow atlas configured");
 
 	set_mesh_lod_threshold(mesh_lod_threshold);
+	print_verbose("Viewport startup: mesh LOD configured");
 
 	String id = itos(get_instance_id());
 	input_group = "_vp_input" + id;
@@ -5575,14 +5588,17 @@ Viewport::Viewport() {
 	gui.tooltip_delay = GLOBAL_GET("gui/timers/tooltip_delay_sec");
 
 #ifndef _3D_DISABLED
+	print_verbose("Viewport startup: configuring 3D scaling and texture filtering");
 	set_scaling_3d_mode((Viewport::Scaling3DMode)(int)GLOBAL_GET("rendering/scaling_3d/mode"));
 	set_scaling_3d_scale(GLOBAL_GET("rendering/scaling_3d/scale"));
 	set_fsr_sharpness((float)GLOBAL_GET("rendering/scaling_3d/fsr_sharpness"));
 	set_texture_mipmap_bias((float)GLOBAL_GET("rendering/textures/default_filters/texture_mipmap_bias"));
 	set_anisotropic_filtering_level((Viewport::AnisotropicFiltering)(int)GLOBAL_GET("rendering/textures/default_filters/anisotropic_filtering_level"));
+	print_verbose("Viewport startup: 3D scaling and texture filtering configured");
 #endif // _3D_DISABLED
 
 	set_sdf_oversize(sdf_oversize); // Set to server.
+	print_verbose("Viewport startup: SDF configured");
 
 	// Physics interpolation mode for viewports is a special case.
 	// Typically viewports will be housed within Controls,
@@ -5592,6 +5608,7 @@ Viewport::Viewport() {
 	set_physics_interpolation_mode(Node::PHYSICS_INTERPOLATION_MODE_ON);
 
 	ProjectSettings::get_singleton()->connect("settings_changed", callable_mp(this, &Viewport::_on_settings_changed));
+	print_verbose("Viewport startup: constructor completed");
 }
 
 Viewport::~Viewport() {

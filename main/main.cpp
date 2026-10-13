@@ -3900,7 +3900,46 @@ Error Main::setup2(bool p_show_boot_logo) {
 		// able to load resources, load the global shader variables.
 		// If running on editor, don't load the textures because the editor
 		// may want to import them first. Editor will reload those later.
-		rendering_server->global_shader_parameters_load_settings(!editor);
+		//
+		// Never load shader global textures from the rendering thread. A
+		// resource may need to migrate changed-signal connections through the
+		// main MessageQueue while completing its load. With separate rendering,
+		// this deadlocks as soon as the main thread performs a synchronous
+		// RenderingServer call: main waits for rendering, while rendering waits
+		// for main to flush the MessageQueue.
+		rendering_server->global_shader_parameters_load_settings(false);
+
+		if (!editor) {
+			List<PropertyInfo> settings;
+			ProjectSettings::get_singleton()->get_property_list(&settings);
+
+			for (const PropertyInfo &E : settings) {
+				if (!E.name.begins_with("shader_globals/")) {
+					continue;
+				}
+
+				Dictionary global = GLOBAL_GET(E.name);
+				if (!global.has("type") || !global.has("value")) {
+					continue;
+				}
+
+				String type = global["type"];
+				if (!type.begins_with("sampler")) {
+					continue;
+				}
+
+				String path = global["value"];
+				if (path.is_empty()) {
+					continue;
+				}
+
+				Ref<Resource> resource = ResourceLoader::load(path);
+				if (resource.is_valid()) {
+					StringName name = E.name.get_slicec('/', 1);
+					rendering_server->global_shader_parameter_set(name, resource);
+				}
+			}
+		}
 	}
 
 	OS::get_singleton()->benchmark_end_measure("Startup", "Finalize Setup");

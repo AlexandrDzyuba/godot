@@ -2048,6 +2048,7 @@ void SceneTree::set_disable_node_threading(bool p_disable) {
 }
 
 SceneTree::SceneTree() {
+	print_verbose("SceneTree startup: constructor entered");
 	if (singleton == nullptr) {
 		singleton = this;
 	}
@@ -2062,10 +2063,13 @@ SceneTree::SceneTree() {
 
 	process_group_call_queue_allocator = memnew(CallQueue::Allocator(64));
 	Math::randomize();
+	print_verbose("SceneTree startup: basic settings initialized");
 
 	// Create with mainloop.
 
+	print_verbose("SceneTree startup: creating root Window");
 	root = memnew(Window);
+	print_verbose("SceneTree startup: root Window created");
 	root->set_min_size(Size2i(64, 64)); // Define a very small minimum window size to prevent bugs such as GH-37242.
 	root->set_process_mode(Node::PROCESS_MODE_PAUSABLE);
 	root->set_name("root");
@@ -2079,15 +2083,20 @@ SceneTree::SceneTree() {
 
 	// Set after auto translate mode to avoid changing the displayed title back and forth.
 	root->set_title(GLOBAL_GET("application/config/name"));
+	print_verbose("SceneTree startup: root Window configured");
 
 #ifndef _3D_DISABLED
+	print_verbose("SceneTree startup: configuring World3D");
 	if (root->get_world_3d().is_null()) {
 		root->set_world_3d(Ref<World3D>(memnew(World3D)));
 	}
 	root->set_as_audio_listener_3d(true);
+	print_verbose("SceneTree startup: World3D configured");
 #endif // _3D_DISABLED
 
+	print_verbose("SceneTree startup: configuring physics interpolation");
 	set_physics_interpolation_enabled(GLOBAL_DEF("physics/common/physics_interpolation", false));
+	print_verbose("SceneTree startup: physics interpolation configured");
 
 	// Always disable jitter fix if physics interpolation is enabled -
 	// Jitter fix will interfere with interpolation, and is not necessary
@@ -2098,25 +2107,34 @@ SceneTree::SceneTree() {
 
 	// Initialize network state.
 	set_multiplayer(MultiplayerAPI::create_default_interface());
+	print_verbose("SceneTree startup: multiplayer configured");
 
+	print_verbose("SceneTree startup: configuring 2D audio listener");
 	root->set_as_audio_listener_2d(true);
+	print_verbose("SceneTree startup: 2D audio listener configured");
 	current_scene = nullptr;
+	print_verbose("SceneTree startup: configuring root viewport");
 
 	const int msaa_mode_2d = GLOBAL_GET("rendering/anti_aliasing/quality/msaa_2d");
 	root->set_msaa_2d(Viewport::MSAA(msaa_mode_2d));
+	print_verbose("SceneTree startup: MSAA 2D configured");
 
 	const int msaa_mode_3d = GLOBAL_GET("rendering/anti_aliasing/quality/msaa_3d");
 	root->set_msaa_3d(Viewport::MSAA(msaa_mode_3d));
+	print_verbose("SceneTree startup: MSAA 3D configured");
 
 	const bool transparent_background = GLOBAL_DEF("rendering/viewport/transparent_background", false);
 	root->set_transparent_background(transparent_background);
+	print_verbose("SceneTree startup: transparent background configured");
 
 	// Enable HDR if requested.
 	const bool hdr_requested = GLOBAL_GET("display/window/hdr/request_hdr_output");
 	DisplayServer::get_singleton()->window_request_hdr_output(hdr_requested);
+	print_verbose("SceneTree startup: HDR output request configured");
 
 	const bool use_hdr_2d = GLOBAL_GET("rendering/viewport/hdr_2d");
 	root->set_use_hdr_2d(use_hdr_2d || hdr_requested);
+	print_verbose("SceneTree startup: HDR 2D configured");
 
 	if (hdr_requested && !use_hdr_2d) {
 		WARN_PRINT_ED("HDR 2D was automatically enabled because HDR output was requested in project settings. To avoid this warning, enable rendering/viewport/hdr_2d in the Project Settings.");
@@ -2124,28 +2142,36 @@ SceneTree::SceneTree() {
 
 	const int ssaa_mode = GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "rendering/anti_aliasing/quality/screen_space_aa", PROPERTY_HINT_ENUM, "Disabled (Fastest),FXAA (Fast),SMAA (Average)"), 0);
 	root->set_screen_space_aa(Viewport::ScreenSpaceAA(ssaa_mode));
+	print_verbose("SceneTree startup: screen-space antialiasing configured");
 
 	const bool use_taa = GLOBAL_DEF_BASIC("rendering/anti_aliasing/quality/use_taa", false);
 	root->set_use_taa(use_taa);
+	print_verbose("SceneTree startup: TAA configured");
 
 	const bool use_debanding = GLOBAL_GET("rendering/anti_aliasing/quality/use_debanding");
 	root->set_use_debanding(use_debanding);
+	print_verbose("SceneTree startup: debanding configured");
 
 	const bool use_occlusion_culling = GLOBAL_DEF("rendering/occlusion_culling/use_occlusion_culling", false);
 	root->set_use_occlusion_culling(use_occlusion_culling);
+	print_verbose("SceneTree startup: occlusion culling configured");
 
 	float mesh_lod_threshold = GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/mesh_lod/lod_change/threshold_pixels", PROPERTY_HINT_RANGE, "0,1024,0.1"), 1.0);
 	root->set_mesh_lod_threshold(mesh_lod_threshold);
+	print_verbose("SceneTree startup: mesh LOD configured");
 
 	bool snap_2d_transforms = GLOBAL_DEF_BASIC("rendering/2d/snap/snap_2d_transforms_to_pixel", false);
 	root->set_snap_2d_transforms_to_pixel(snap_2d_transforms);
+	print_verbose("SceneTree startup: 2D transform snapping configured");
 
 	bool snap_2d_vertices = GLOBAL_DEF("rendering/2d/snap/snap_2d_vertices_to_pixel", false);
 	root->set_snap_2d_vertices_to_pixel(snap_2d_vertices);
+	print_verbose("SceneTree startup: 2D vertex snapping configured");
 
 	// We setup VRS for the main viewport here, in the editor this will have little effect.
 	const int vrs_mode = GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/vrs/mode", PROPERTY_HINT_ENUM, String::utf8("Disabled,Texture,XR")), 0);
 	root->set_vrs_mode(Viewport::VRSMode(vrs_mode));
+	print_verbose("SceneTree startup: VRS mode configured");
 	const String vrs_texture_path = String(GLOBAL_DEF(PropertyInfo(Variant::STRING, "rendering/vrs/texture", PROPERTY_HINT_FILE, "*.bmp,*.png,*.tga,*.webp"), String())).strip_edges();
 	if (vrs_mode == 1 && !vrs_texture_path.is_empty()) {
 		Ref<Image> vrs_image;
@@ -2157,7 +2183,9 @@ SceneTree::SceneTree() {
 			root->set_vrs_texture(ImageTexture::create_from_image(vrs_image));
 		}
 	}
+	print_verbose("SceneTree startup: VRS texture handled");
 
+	print_verbose("SceneTree startup: configuring positional shadow atlas");
 	int shadowmap_size = GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/lights_and_shadows/positional_shadow/atlas_size", PROPERTY_HINT_RANGE, "256,16384"), 4096);
 	GLOBAL_DEF("rendering/lights_and_shadows/positional_shadow/atlas_size.mobile", 2048);
 	bool shadowmap_16_bits = GLOBAL_GET("rendering/lights_and_shadows/positional_shadow/atlas_16_bits");
@@ -2172,14 +2200,17 @@ SceneTree::SceneTree() {
 	root->set_positional_shadow_atlas_quadrant_subdiv(1, Viewport::PositionalShadowAtlasQuadrantSubdiv(atlas_q1));
 	root->set_positional_shadow_atlas_quadrant_subdiv(2, Viewport::PositionalShadowAtlasQuadrantSubdiv(atlas_q2));
 	root->set_positional_shadow_atlas_quadrant_subdiv(3, Viewport::PositionalShadowAtlasQuadrantSubdiv(atlas_q3));
+	print_verbose("SceneTree startup: positional shadow atlas configured");
 
 	Viewport::SDFOversize sdf_oversize = Viewport::SDFOversize(int(GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/2d/sdf/oversize", PROPERTY_HINT_ENUM, "100%,120%,150%,200%"), 1)));
 	root->set_sdf_oversize(sdf_oversize);
 	Viewport::SDFScale sdf_scale = Viewport::SDFScale(int(GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/2d/sdf/scale", PROPERTY_HINT_ENUM, "100%,50%,25%"), 1)));
 	root->set_sdf_scale(sdf_scale);
+	print_verbose("SceneTree startup: viewport SDF configured");
 
 #ifndef _3D_DISABLED
 	{ // Load default fallback environment.
+		print_verbose("SceneTree startup: loading default fallback environment");
 		// Get possible extensions.
 		List<String> exts;
 		ResourceLoader::get_recognized_extensions_for_type("Environment", &exts);
@@ -2208,22 +2239,28 @@ SceneTree::SceneTree() {
 				}
 			}
 		}
+		print_verbose("SceneTree startup: default fallback environment handled");
 	}
 #endif // _3D_DISABLED
 
 #if !defined(PHYSICS_2D_DISABLED) || !defined(PHYSICS_3D_DISABLED)
+	print_verbose("SceneTree startup: configuring physics object picking");
 	root->set_physics_object_picking(GLOBAL_DEF("physics/common/enable_object_picking", true));
+	print_verbose("SceneTree startup: physics object picking configured");
 #endif // !defined(PHYSICS_2D_DISABLED) || !defined(PHYSICS_3D_DISABLED)
 
+	print_verbose("SceneTree startup: connecting root Window signals");
 	root->connect("close_requested", callable_mp(this, &SceneTree::_main_window_close));
 	root->connect("go_back_requested", callable_mp(this, &SceneTree::_main_window_go_back));
 	root->connect(SceneStringName(focus_entered), callable_mp(this, &SceneTree::_main_window_focus_in));
+	print_verbose("SceneTree startup: root Window signals connected");
 
 #ifdef TOOLS_ENABLED
 	edited_scene_root = nullptr;
 #endif
 
 	process_groups.push_back(&default_process_group);
+	print_verbose("SceneTree startup: constructor completed");
 }
 
 SceneTree::~SceneTree() {

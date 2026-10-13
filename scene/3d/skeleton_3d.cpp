@@ -379,7 +379,9 @@ void Skeleton3D::_notification(int p_what) {
 							}
 
 							if (!found) {
-								ERR_PRINT("Skin bind #" + itos(i) + " contains named bind '" + String(bind_name) + "' but Skeleton3D has no bone by that name.");
+								// Silently fall back to the root bone for stale named binds.
+								// Imported skins can retain optional bones which are absent
+								// from a compatible runtime skeleton.
 								E->skin_bone_indices_ptrs[i] = 0;
 							}
 						} else if (skin->get_bind_bone(i) >= 0) {

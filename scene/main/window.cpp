@@ -3704,14 +3704,20 @@ void Window::_bind_methods() {
 }
 
 Window::Window() {
+	print_verbose("Window startup: constructor entered");
 	RenderingServer *rendering_server = RenderingServer::get_singleton();
 	if (rendering_server) {
+		print_verbose("Window startup: calling RenderingServer::get_maximum_viewport_size");
 		max_size = rendering_server->get_maximum_viewport_size();
+		print_verbose("Window startup: RenderingServer::get_maximum_viewport_size completed");
 		max_size_used = max_size; // Update max_size_used.
 	}
 
 	theme_owner = memnew(ThemeOwner(this));
+	print_verbose("Window startup: ThemeOwner created");
+	print_verbose("Window startup: disabling viewport updates");
 	RS::get_singleton()->viewport_set_update_mode(get_viewport_rid(), RSE::VIEWPORT_UPDATE_DISABLED);
+	print_verbose("Window startup: constructor completed");
 }
 
 Window::~Window() {
