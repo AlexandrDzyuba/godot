@@ -129,7 +129,12 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 
 		// Raytracing extensions.
 		PFN_vkCreateAccelerationStructureKHR CreateAccelerationStructureKHR = nullptr;
+		PFN_vkDestroyAccelerationStructureKHR DestroyAccelerationStructureKHR = nullptr;
+		PFN_vkGetAccelerationStructureBuildSizesKHR GetAccelerationStructureBuildSizesKHR = nullptr;
+		PFN_vkCmdBuildAccelerationStructuresKHR CmdBuildAccelerationStructuresKHR = nullptr;
 		PFN_vkCreateRayTracingPipelinesKHR CreateRaytracingPipelinesKHR = nullptr;
+		PFN_vkGetRayTracingShaderGroupHandlesKHR GetRayTracingShaderGroupHandlesKHR = nullptr;
+		PFN_vkCmdTraceRaysKHR CmdTraceRaysKHR = nullptr;
 	};
 	// Debug marker extensions.
 	VkDebugReportObjectTypeEXT _convert_to_debug_report_objectType(VkObjectType p_object_type);
@@ -166,6 +171,7 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 #if defined(VK_TRACK_DEVICE_MEMORY)
 	bool device_memory_report_support = false;
 #endif
+	bool device_local_host_visible_host_coherent_memory_support = false;
 #if defined(SWAPPY_FRAME_PACING_ENABLED)
 	// Swappy frame pacer for Android.
 	bool swappy_frame_pacer_enable = false;
@@ -188,6 +194,7 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 
 	PipelineStatistics pipeline_statistics;
 	DriverWorkarounds driver_workarounds;
+	BinaryMutex *powervr_rogue_shader_crash_workaround_mutex = nullptr;
 
 	void _register_requested_device_extension(const CharString &p_extension_name, bool p_required);
 	Error _initialize_device_extensions();
@@ -541,7 +548,7 @@ private:
 		VkDescriptorPool vk_descriptor_pool = VK_NULL_HANDLE;
 		VkDescriptorPool vk_linear_descriptor_pool = VK_NULL_HANDLE;
 		DescriptorSetPools::Iterator pool_sets_it;
-		TightLocalVector<BufferInfo const *, uint32_t> dynamic_buffers;
+		TightLocalVector<const BufferInfo *, uint32_t> dynamic_buffers;
 	};
 
 	bool adreno_5xx_empty_descriptor_set_layout_workaround = false;

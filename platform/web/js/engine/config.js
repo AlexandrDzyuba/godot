@@ -67,7 +67,7 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 * The canvas resize policy determines how the canvas should be resized by Godot.
 		 *
 		 * ``0`` means Godot won't do any resizing. This is useful if you want to control the canvas size from
-		 * javascript code in your template.
+		 * JavaScript code in your template.
 		 *
 		 * ``1`` means Godot will resize the canvas on start, and when changing window size via engine functions.
 		 *
@@ -120,19 +120,14 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		persistentPaths: ['/userfs'],
 		/**
 		 * @ignore
-		 * @type {boolean}
-		 */
-		persistentDrops: false,
-		/**
-		 * @ignore
 		 * @type {Array.<string>}
 		 */
 		gdextensionLibs: [],
 		/**
 		 * @ignore
-		 * @type {Array.<string>}
+		 * @type {Object<string, number>}
 		 */
-		fileSizes: [],
+		fileSizes: {},
 		/**
 		 * @ignore
 		 * @type {number}
@@ -144,9 +139,23 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		godotPoolSize: 4,
 		/**
+		 * A MessagePort used to send debug messages when using protocol messageport://
+		 * @memberof EngineConfig
+		 * @default
+		 * @type {?MessagePort}
+		 */
+		debugPort: null,
+		/**
+		 * The Process ID assigned to this instance (useful for debugging).
+		 * @memberof EngineConfig
+		 * @default
+		 * @type {number}
+		 */
+		pid: 0,
+		/**
 		 * A callback function for handling Godot's ``OS.execute`` calls.
 		 *
-		 * This is for example used in the Web Editor template to switch between project manager and editor, and for running the game.
+		 * This is for example used in the Web Editor template to switch between Project Manager and editor, and for running the game.
 		 *
 		 * @callback EngineConfig.onExecute
 		 * @param {string} path The path that Godot's wants executed.
@@ -154,9 +163,22 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		 */
 		/**
 		 * @ignore
-		 * @type {?function(string, Array.<string>)}
+		 * @type {?function(string, Array.<string>):?number}
 		 */
 		onExecute: null,
+		/**
+		 * A callback function for handling Godot's ``OS.kill`` calls.
+		 *
+		 * This is for example used in the Web Editor template to forcefully terminate a running game instance.
+		 *
+		 * @callback EngineConfig.onTerminatePID
+		 * @param {number} pid The Process ID to terminate.
+		 */
+		/**
+		 * @ignore
+		 * @type {?function(number)}
+		 */
+		onTerminatePID: null,
 		/**
 		 * A callback function for being notified when the Godot instance quits.
 		 *
@@ -263,7 +285,6 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		this.locale = parse('locale', this.locale);
 		this.canvasResizePolicy = parse('canvasResizePolicy', this.canvasResizePolicy);
 		this.persistentPaths = parse('persistentPaths', this.persistentPaths);
-		this.persistentDrops = parse('persistentDrops', this.persistentDrops);
 		this.experimentalVK = parse('experimentalVK', this.experimentalVK);
 		this.focusCanvas = parse('focusCanvas', this.focusCanvas);
 		this.serviceWorker = parse('serviceWorker', this.serviceWorker);
@@ -271,8 +292,11 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 		this.fileSizes = parse('fileSizes', this.fileSizes);
 		this.emscriptenPoolSize = parse('emscriptenPoolSize', this.emscriptenPoolSize);
 		this.godotPoolSize = parse('godotPoolSize', this.godotPoolSize);
+		this.pid = parse('pid', this.pid);
 		this.args = parse('args', this.args);
+		this.debugPort = parse('debugPort', this.debugPort);
 		this.onExecute = parse('onExecute', this.onExecute);
+		this.onTerminatePID = parse('onTerminatePID', this.onTerminatePID);
 		this.onExit = parse('onExit', this.onExit);
 	};
 
@@ -358,14 +382,16 @@ const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-
 
 		// Godot configuration.
 		return {
+			'pid': this.pid,
 			'canvas': this.canvas,
 			'canvasResizePolicy': this.canvasResizePolicy,
 			'locale': locale,
-			'persistentDrops': this.persistentDrops,
 			'virtualKeyboard': this.experimentalVK,
 			'godotPoolSize': this.godotPoolSize,
 			'focusCanvas': this.focusCanvas,
+			'debugPort': this.debugPort,
 			'onExecute': this.onExecute,
+			'onTerminatePID': this.onTerminatePID,
 			'onExit': function (p_code) {
 				cleanup(); // We always need to call the cleanup callback to free memory.
 				if (typeof (onExit) === 'function') {
