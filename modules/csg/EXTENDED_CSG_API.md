@@ -6,7 +6,10 @@ context file for an AI assistant working on a game project built with this
 engine.
 
 The C++ headers and `modules/csg/doc_classes/*.xml` remain the source of truth.
-The API below reflects the repository state as of 2026-10-01.
+The API below reflects the repository state as of 2026-10-27.
+
+For practical async usage, examples, ownership, and chunk lifecycle guidance,
+see [ASYNC_CSG_USAGE.md](ASYNC_CSG_USAGE.md).
 
 ## Important context for future work
 
@@ -18,11 +21,11 @@ The API below reflects the repository state as of 2026-10-01.
 - CSG updates are deferred. After changing a CSG node from script, wait for one
   rendered frame before calling `bake_static_mesh()`, `get_geometry_data()`, or
   `split_meshes()` when the current result is required.
-- The current CSG build path is not documented as thread-safe. Do not access or
-  mutate scene nodes/resources from worker threads. Background terrain-edit
-  jobs, persistent blueprint/storage databases, content-addressed deduplication,
-  and asynchronous chunk replacement have been discussed, but are **not
-  implemented by this API**.
+- Opt-in `generate_mesh_async()` transfers an orphan CSG tree to a worker job.
+  The caller must not access that tree and is responsible for thread safety of
+  shared resources and script modifiers. Scene-tree CSG remains synchronous.
+  Persistent blueprint storage and asynchronous chunk replacement are not
+  implemented by this API.
 - Native bevel can be expensive and can reject difficult output as non-manifold
   or non-finite. For large stepped height maps, `slope_width` and shader edge
   data are the preferred baseline.
@@ -65,6 +68,7 @@ func get_geometry_data(
     ) -> CSGGeometryData
 
 func split_meshes(settings: CSGSplitSettings = null) -> Array[ArrayMesh]
+func generate_mesh_async(create_static_body: bool = false) -> CSGAsyncJob
 func bake_static_mesh() -> ArrayMesh
 func bake_collision_shape() -> ConcavePolygonShape3D
 ```
@@ -562,9 +566,9 @@ Generated roots also store `csg_height_map_chunk_coordinate` and
 `csg_height_map_source_region` metadata. Public lifecycle methods are
 `refresh_chunks()`, `rebuild_chunks()`, and `clear_chunks()`.
 
-The per-frame creation budget spreads main-thread work over time; it does not
-make the CSG build threaded. Worker-thread mesh generation and atomic mesh
-replacement remain future architecture work.
+The per-frame creation budget spreads main-thread work over time; this example
+does not yet use `generate_mesh_async()`. Integrating the job and revision-based
+mesh replacement is future work.
 
 ### Shader channel contract example
 
@@ -812,6 +816,8 @@ Implemented in this fork:
 - color/custom-preserving `CSGMesh3D` import;
 - recursive closed-solid CSG splitting;
 - cap-producing arbitrary triangle-mesh splitting;
+- opt-in async generation from an owned orphan CSG tree, with optional static
+  body; see `ASYNC_CSG_PLAN.md` for ownership and threading requirements;
 - editor dialogs, settings resources, rigid-body output, and initial velocity.
 
 Not implemented merely by the APIs in this document:

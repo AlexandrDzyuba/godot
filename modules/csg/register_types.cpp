@@ -31,6 +31,7 @@
 #include "register_types.h"
 
 #include "csg_attribute_modifier.h"
+#include "csg_async_job.h"
 #include "csg_bevel_settings.h"
 #include "csg_geometry_data.h"
 #include "csg_height_map_layer.h"
@@ -50,6 +51,7 @@
 
 void initialize_csg_module(ModuleInitializationLevel p_level) {
 	if (p_level == MODULE_INITIALIZATION_LEVEL_SCENE) {
+		CSGAsyncJob::initialize();
 		GDREGISTER_CLASS(CSGGeometryData);
 		GDREGISTER_CLASS(CSGHeightMapLayer);
 		GDREGISTER_CLASS(CSGModifierContext);
@@ -61,6 +63,7 @@ void initialize_csg_module(ModuleInitializationLevel p_level) {
 		GDREGISTER_CLASS(CSGBevelSettings);
 		GDREGISTER_CLASS(CSGSplitSettings);
 		GDREGISTER_CLASS(CSGTopologySettings);
+		GDREGISTER_CLASS(CSGAsyncJob);
 		GDREGISTER_CLASS(MeshSplitSettings);
 		GDREGISTER_CLASS(MeshSplitter);
 		GDREGISTER_ABSTRACT_CLASS(CSGShape3D);
@@ -90,4 +93,5 @@ void uninitialize_csg_module(ModuleInitializationLevel p_level) {
 	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
 		return;
 	}
+	CSGAsyncJob::shutdown();
 }

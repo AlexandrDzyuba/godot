@@ -31,6 +31,7 @@
 #pragma once
 
 #include "../csg_attribute_modifier.h"
+#include "../csg_async_job.h"
 #include "../csg_bevel_settings.h"
 #include "../csg_geometry_data.h"
 #include "../csg_shape.h"
@@ -38,6 +39,11 @@
 #include "../mesh_splitter.h"
 
 #include "core/io/image.h"
+#include "core/object/message_queue.h"
+#include "core/os/os.h"
+#ifndef PHYSICS_3D_DISABLED
+#include "scene/3d/physics/static_body_3d.h"
+#endif
 #include "scene/main/scene_tree.h"
 #include "scene/main/window.h"
 #include "scene/resources/3d/primitive_meshes.h"
@@ -45,6 +51,93 @@
 #include "tests/test_macros.h"
 
 namespace TestCSG {
+
+TEST_CASE("[SceneTree][CSG] An orphan with a cached brush builds a mesh after entering the tree") {
+	CSGBox3D *box = memnew(CSGBox3D);
+	box->set_size(Vector3(2, 2, 2));
+	REQUIRE(box->get_geometry_data().is_valid());
+	SceneTree::get_singleton()->get_root()->add_child(box);
+	MessageQueue::get_singleton()->flush();
+	Ref<ArrayMesh> mesh = box->bake_static_mesh();
+	CHECK(mesh.is_valid());
+	if (mesh.is_valid()) {
+		CHECK(mesh->get_surface_count() > 0);
+	}
+	SceneTree::get_singleton()->get_root()->remove_child(box);
+	memdelete(box);
+}
+
+#ifdef THREADS_ENABLED
+TEST_CASE("[SceneTree][CSG] Async orphan CSG generates a mesh and optional static body") {
+	CSGCombiner3D *root = memnew(CSGCombiner3D);
+	CSGBox3D *box = memnew(CSGBox3D);
+	root->add_child(box);
+	const ObjectID root_id = root->get_instance_id();
+#ifndef PHYSICS_3D_DISABLED
+	const bool create_body = true;
+#else
+	const bool create_body = false;
+#endif
+	Ref<CSGAsyncJob> job = root->generate_mesh_async(create_body);
+	REQUIRE(job.is_valid());
+	for (int i = 0; i < 5000 && !job->is_finished(); i++) {
+		MessageQueue::get_singleton()->flush();
+		OS::get_singleton()->delay_usec(1000);
+	}
+	REQUIRE(job->is_finished());
+	CHECK(job->get_status() == CSGAsyncJob::STATUS_COMPLETED);
+	REQUIRE(job->get_mesh().is_valid());
+	CHECK(job->get_mesh()->get_surface_count() > 0);
+	CHECK(ObjectDB::get_instance(root_id) == nullptr);
+#ifndef PHYSICS_3D_DISABLED
+	StaticBody3D *body = job->take_static_body();
+	REQUIRE(body != nullptr);
+	CHECK(body->get_child_count() == 1);
+	CHECK(job->take_static_body() == nullptr);
+	memdelete(body);
+#endif
+}
+
+TEST_CASE("[SceneTree][CSG] Cancelled async CSG releases its orphan tree") {
+	CSGBox3D *root = memnew(CSGBox3D);
+	const ObjectID root_id = root->get_instance_id();
+	Ref<CSGAsyncJob> job = root->generate_mesh_async();
+	REQUIRE(job.is_valid());
+	job->cancel();
+	for (int i = 0; i < 5000 && !job->is_finished(); i++) {
+		MessageQueue::get_singleton()->flush();
+		OS::get_singleton()->delay_usec(1000);
+	}
+	REQUIRE(job->is_finished());
+	CHECK(job->get_status() == CSGAsyncJob::STATUS_CANCELLED);
+	CHECK(job->get_mesh().is_null());
+	CHECK(ObjectDB::get_instance(root_id) == nullptr);
+}
+
+TEST_CASE("[SceneTree][CSG] Async height map uses prepared image data") {
+	Ref<Image> image = memnew(Image(2, 1, false, Image::FORMAT_RGBA8));
+	image->set_pixel(0, 0, Color(0, 0, 0, 1));
+	image->set_pixel(1, 0, Color(1, 1, 1, 1));
+	Ref<ImageTexture> texture = ImageTexture::create_from_image(image);
+	CSGHeightMap3D *root = memnew(CSGHeightMap3D);
+	root->set_height_map(texture);
+	root->set_size(Vector3(2, 2, 1));
+	root->set_height_steps(2);
+	root->set_generation_mode(CSGHeightMap3D::GENERATION_DIRECT_CONTOUR_MESH);
+	const ObjectID root_id = root->get_instance_id();
+	Ref<CSGAsyncJob> job = root->generate_mesh_async();
+	REQUIRE(job.is_valid());
+	for (int i = 0; i < 5000 && !job->is_finished(); i++) {
+		MessageQueue::get_singleton()->flush();
+		OS::get_singleton()->delay_usec(1000);
+	}
+	REQUIRE(job->is_finished());
+	REQUIRE(job->get_status() == CSGAsyncJob::STATUS_COMPLETED);
+	REQUIRE(job->get_mesh().is_valid());
+	CHECK(job->get_mesh()->get_aabb().get_end().y == doctest::Approx(1.0));
+	CHECK(ObjectDB::get_instance(root_id) == nullptr);
+}
+#endif
 
 TEST_CASE("[SceneTree][CSG] CSGMesh3D preserves vertex color and custom channels") {
 	Ref<ArrayMesh> source_mesh;

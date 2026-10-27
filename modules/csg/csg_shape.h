@@ -37,6 +37,7 @@
 #include "csg_split_settings.h"
 #include "csg_topology_settings.h"
 
+#include "core/io/image.h"
 #include "scene/3d/path_3d.h"
 #include "scene/3d/visual_instance_3d.h"
 
@@ -50,6 +51,7 @@ class Mesh;
 class NavigationMesh;
 class NavigationMeshSourceGeometryData3D;
 class Texture2D;
+class CSGAsyncJob;
 
 class CSGShape3D : public GeometryInstance3D {
 	GDCLASS(CSGShape3D, GeometryInstance3D);
@@ -67,10 +69,12 @@ private:
 	CSGShape3D *parent_shape = nullptr;
 
 	CSGBrush *brush = nullptr;
+	CSGBrush *async_prebuilt_brush = nullptr;
 
 	AABB node_aabb;
 
 	bool dirty = false;
+	bool async_job_owned = false;
 	bool last_visible = false;
 	float snap = 0.001;
 
@@ -151,6 +155,7 @@ protected:
 	static void _bind_methods();
 
 	friend class CSGCombiner3D;
+	friend class CSGAsyncJob;
 	CSGBrush *_get_brush();
 
 	void _validate_property(PropertyInfo &p_property) const;
@@ -215,6 +220,7 @@ public:
 	bool is_root_shape() const;
 
 	Ref<ArrayMesh> bake_static_mesh();
+	Ref<CSGAsyncJob> generate_mesh_async(bool p_create_static_body = false);
 #ifndef PHYSICS_3D_DISABLED
 	Ref<ConcavePolygonShape3D> bake_collision_shape();
 #endif // PHYSICS_3D_DISABLED
@@ -352,6 +358,7 @@ public:
 
 class CSGHeightMap3D : public CSGPrimitive3D {
 	GDCLASS(CSGHeightMap3D, CSGPrimitive3D);
+	friend class CSGAsyncJob;
 
 public:
 	enum HeightChannel {
@@ -393,6 +400,8 @@ private:
 	real_t _sample_height_value(const Color &p_color) const;
 
 	Ref<Texture2D> height_map;
+	Ref<Image> async_height_image;
+	bool async_height_image_prepared = false;
 	bool region_enabled = false;
 	Rect2i region_rect;
 	Vector3 size = Vector3(10, 2, 10);

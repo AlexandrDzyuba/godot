@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="CSGAsyncJob" inherits="RefCounted" api_type="core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>An asynchronous build of an orphan CSG tree.</brief_description>
+	<description>
+		Returned by [method CSGShape3D.generate_mesh_async]. The job owns the submitted CSG tree and frees it on the main thread once the worker completes. Its [signal completed] signal fires on the main thread for success, failure, or cancellation. The module retains active jobs until completion even if the caller drops its reference.
+		The input tree and any shared resources must not be accessed or modified concurrently unless the caller guarantees their thread safety. Height-map images and [CSGMesh3D] input geometry are read on the main thread before the job starts to avoid renderer readback from the worker. These reads may be expensive. Script modifiers and custom resource implementations are the caller's responsibility and must not synchronously wait for the main thread or renderer, particularly during shutdown. Cancellation prevents publication but cannot interrupt an already-running Boolean operation.
+	</description>
+	<methods>
+		<method name="cancel"><return type="void" /><description>Requests cancellation. Cleanup occurs when the worker finishes.</description></method>
+		<method name="get_error_message" qualifiers="const"><return type="String" /><description>Returns the failure description, if any.</description></method>
+		<method name="get_mesh" qualifiers="const"><return type="ArrayMesh" /><description>Returns the generated mesh after successful completion.</description></method>
+		<method name="get_status" qualifiers="const"><return type="int" enum="CSGAsyncJob.Status" /><description>Returns the job status.</description></method>
+		<method name="is_finished" qualifiers="const"><return type="bool" /><description>Returns whether main-thread finalization has completed.</description></method>
+		<method name="take_static_body"><return type="StaticBody3D" /><description>Transfers ownership of the generated body to the caller, or returns [code]null[/code]. Call only once after successful completion. An unclaimed body is freed with the job.</description></method>
+	</methods>
+	<signals>
+		<signal name="completed"><description>Emitted on the main thread once the result and cleanup are complete.</description></signal>
+	</signals>
+	<constants>
+		<constant name="STATUS_PENDING" value="0" enum="Status">The worker or main-thread finalization is pending.</constant>
+		<constant name="STATUS_COMPLETED" value="1" enum="Status">Mesh generation succeeded.</constant>
+		<constant name="STATUS_FAILED" value="2" enum="Status">Generation failed.</constant>
+		<constant name="STATUS_CANCELLED" value="3" enum="Status">The job was cancelled.</constant>
+	</constants>
+</class>

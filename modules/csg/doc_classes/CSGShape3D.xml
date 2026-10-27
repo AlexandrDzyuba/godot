@@ -44,6 +44,15 @@
 				Returns semantic face, edge, vertex, and adjacency data for the current CSG result.
 			</description>
 		</method>
+		<method name="generate_mesh_async">
+			<return type="CSGAsyncJob" />
+			<param index="0" name="create_static_body" type="bool" default="false" />
+			<description>
+				Starts background CSG generation for an unparented root outside the scene tree. On success the returned job owns this node and its children and frees them on the main thread after generation, including on failure or cancellation. If the call fails and returns [code]null[/code], the caller retains ownership.
+				The caller must not access, alter, free, or add the tree to the scene while the job owns it. The caller is responsible for ensuring that shared resources, textures, and script modifiers are safe for concurrent access and are not mutated during generation. Wait for the job's [signal CSGAsyncJob.completed] signal before obtaining its result.
+				When [param create_static_body] is [code]true[/code], the job also creates a [StaticBody3D] with a concave collision shape. The mesh, physics body, and resource cleanup are finalized on the main thread.
+			</description>
+		</method>
 		<method name="get_collision_mask_value" qualifiers="const">
 			<return type="bool" />
 			<param index="0" name="layer_number" type="int" />

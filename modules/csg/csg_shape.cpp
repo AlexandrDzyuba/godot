@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "csg_shape.h"
+#include "csg_async_job.h"
 
 #include "csg_attribute_modifier.h"
 #include "csg_native_bevel.h"
@@ -258,6 +259,13 @@ float CSGShape3D::get_snap() const {
 #endif // DISABLE_DEPRECATED
 
 void CSGShape3D::_make_dirty(bool p_parent_removing) {
+	if (!is_inside_tree()) {
+		dirty = true;
+		if (parent_shape) {
+			parent_shape->_make_dirty();
+		}
+		return;
+	}
 #ifndef PHYSICS_3D_DISABLED
 	if ((p_parent_removing || is_root_shape()) && !dirty) {
 		callable_mp(this, &CSGShape3D::update_shape).call_deferred(); // Must be deferred; otherwise, is_root_shape() will use the previous parent.
@@ -1027,7 +1035,13 @@ CSGBrush *CSGShape3D::_get_brush() {
 		memdelete(brush);
 	}
 	brush = nullptr;
-	CSGBrush *n = _build_brush();
+	CSGBrush *n;
+	if (async_prebuilt_brush) {
+		n = async_prebuilt_brush;
+		async_prebuilt_brush = nullptr;
+	} else {
+		n = _build_brush();
+	}
 	bool has_colors = n && n->has_colors;
 	uint32_t custom_channels = n ? n->custom_channels : 0;
 	Mesh::ArrayCustomFormat custom_formats[CSGBrush::CUSTOM_CHANNEL_COUNT] = {
@@ -1165,7 +1179,9 @@ CSGBrush *CSGShape3D::_get_brush() {
 	node_aabb = aabb;
 	brush = n;
 	dirty = false;
-	update_configuration_warnings();
+	if (is_inside_tree()) {
+		update_configuration_warnings();
+	}
 	return brush;
 }
 
@@ -1263,7 +1279,7 @@ static Variant _csg_pack_custom_array(const Vector<Vector4> &p_values, Mesh::Arr
 }
 
 void CSGShape3D::update_shape() {
-	if (!is_root_shape()) {
+	if (!is_inside_tree() || !is_root_shape()) {
 		return;
 	}
 
@@ -1635,6 +1651,10 @@ Ref<ArrayMesh> CSGShape3D::bake_static_mesh() {
 		baked_mesh = root_mesh;
 	}
 	return baked_mesh;
+}
+
+Ref<CSGAsyncJob> CSGShape3D::generate_mesh_async(bool p_create_static_body) {
+	return CSGAsyncJob::start(this, p_create_static_body);
 }
 
 namespace {
@@ -2068,8 +2088,11 @@ void CSGShape3D::_notification(int p_what) {
 			}
 		} break;
 
-#ifndef PHYSICS_3D_DISABLED
 		case NOTIFICATION_ENTER_TREE: {
+			if (is_root_shape() && (dirty || root_mesh.is_null())) {
+				callable_mp(this, &CSGShape3D::update_shape).call_deferred();
+			}
+#ifndef PHYSICS_3D_DISABLED
 			if (use_collision && is_root_shape()) {
 				root_collision_shape.instantiate();
 				root_collision_instance = PhysicsServer3D::get_singleton()->body_create();
@@ -2084,8 +2107,10 @@ void CSGShape3D::_notification(int p_what) {
 				debug_shape_old_transform = get_global_transform();
 				_make_dirty();
 			}
+#endif // PHYSICS_3D_DISABLED
 		} break;
 
+#ifndef PHYSICS_3D_DISABLED
 		case NOTIFICATION_EXIT_TREE: {
 			if (use_collision && is_root_shape() && root_collision_instance.is_valid()) {
 				PhysicsServer3D::get_singleton()->free_rid(root_collision_instance);
@@ -2315,6 +2340,7 @@ void CSGShape3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_bevel_settings", "bevel_settings"), &CSGShape3D::set_bevel_settings);
 	ClassDB::bind_method(D_METHOD("get_bevel_settings"), &CSGShape3D::get_bevel_settings);
 	ClassDB::bind_method(D_METHOD("set_topology_settings", "topology_settings"), &CSGShape3D::set_topology_settings);
+	ClassDB::bind_method(D_METHOD("generate_mesh_async", "create_static_body"), &CSGShape3D::generate_mesh_async, DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("get_topology_settings"), &CSGShape3D::get_topology_settings);
 	ClassDB::bind_method(D_METHOD("set_split_settings", "split_settings"), &CSGShape3D::set_split_settings);
 	ClassDB::bind_method(D_METHOD("get_split_settings"), &CSGShape3D::get_split_settings);
@@ -2360,6 +2386,9 @@ CSGShape3D::CSGShape3D() {
 }
 
 CSGShape3D::~CSGShape3D() {
+	if (async_prebuilt_brush) {
+		memdelete(async_prebuilt_brush);
+	}
 	if (brush) {
 		memdelete(brush);
 		brush = nullptr;
@@ -2660,8 +2689,9 @@ CSGBrush *CSGMesh3D::_build_brush() {
 
 void CSGMesh3D::_mesh_changed() {
 	_make_dirty();
-
-	callable_mp((Node3D *)this, &Node3D::update_gizmos).call_deferred();
+	if (is_inside_tree()) {
+		callable_mp((Node3D *)this, &Node3D::update_gizmos).call_deferred();
+	}
 }
 
 void CSGMesh3D::set_material(const Ref<Material> &p_material) {
@@ -3537,7 +3567,7 @@ CSGBrush *CSGHeightMap3D::_build_cell_grid_brush() {
 		return memnew(CSGBrush);
 	}
 
-	Ref<Image> image = height_map->get_image();
+	Ref<Image> image = async_height_image_prepared ? async_height_image : height_map->get_image();
 	if (image.is_null() || image->is_empty()) {
 		return memnew(CSGBrush);
 	}
@@ -3823,7 +3853,7 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 	if (height_map.is_null()) {
 		return memnew(CSGBrush);
 	}
-	Ref<Image> image = height_map->get_image();
+	Ref<Image> image = async_height_image_prepared ? async_height_image : height_map->get_image();
 	if (image.is_null() || image->is_empty()) {
 		return memnew(CSGBrush);
 	}
@@ -4070,7 +4100,7 @@ CSGBrush *CSGHeightMap3D::_build_direct_contour_mesh_brush() {
 	if (height_map.is_null()) {
 		return memnew(CSGBrush);
 	}
-	Ref<Image> image = height_map->get_image();
+	Ref<Image> image = async_height_image_prepared ? async_height_image : height_map->get_image();
 	if (image.is_null() || image->is_empty()) {
 		return memnew(CSGBrush);
 	}
@@ -4285,7 +4315,9 @@ CSGBrush *CSGHeightMap3D::_build_direct_contour_mesh_brush() {
 
 void CSGHeightMap3D::_height_map_changed() {
 	_make_dirty();
-	callable_mp((Node3D *)this, &Node3D::update_gizmos).call_deferred();
+	if (is_inside_tree()) {
+		callable_mp((Node3D *)this, &Node3D::update_gizmos).call_deferred();
+	}
 }
 
 void CSGHeightMap3D::_layer_settings_changed() {

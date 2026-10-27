@@ -145,6 +145,10 @@
 
 #include "modules/modules_enabled.gen.h" // For mono.
 
+#ifdef MODULE_CSG_ENABLED
+#include "modules/csg/csg_async_job.h"
+#endif
+
 #if defined(MODULE_MONO_ENABLED) && defined(TOOLS_ENABLED)
 #include "modules/mono/editor/bindings_generator.h"
 #endif
@@ -886,6 +890,10 @@ void Main::test_cleanup() {
 	ERR_FAIL_COND(!_start_success);
 
 	Thread::make_main_thread();
+
+#ifdef MODULE_CSG_ENABLED
+	CSGAsyncJob::shutdown();
+#endif
 
 	// Printing in the usual way can become problematic during/after cleanup.
 	CoreGlobals::print_ready = false;
@@ -5221,6 +5229,10 @@ void Main::cleanup(bool p_force) {
 	if (!p_force) {
 		ERR_FAIL_COND(!_start_success);
 	}
+
+#ifdef MODULE_CSG_ENABLED
+	CSGAsyncJob::shutdown();
+#endif
 
 	// Printing in the usual way can become problematic during/after cleanup.
 	CoreGlobals::print_ready = false;
