@@ -3482,6 +3482,56 @@ real_t CSGHeightMap3D::_get_layer_slope_width(int p_layer) const {
 	return slope_width;
 }
 
+real_t CSGHeightMap3D::_sample_height_value(const Color &p_color) const {
+	real_t value;
+	switch (height_channel) {
+		case HEIGHT_CHANNEL_RED:
+			value = p_color.r;
+			break;
+		case HEIGHT_CHANNEL_GREEN:
+			value = p_color.g;
+			break;
+		case HEIGHT_CHANNEL_BLUE:
+			value = p_color.b;
+			break;
+		case HEIGHT_CHANNEL_ALPHA:
+			value = p_color.a;
+			break;
+		case HEIGHT_CHANNEL_LUMINANCE:
+		default:
+			value = p_color.get_luminance();
+			break;
+	}
+	value = CLAMP(value, real_t(0.0), real_t(1.0));
+	if (invert_height) {
+		value = 1.0 - value;
+	}
+
+	real_t texture_multiplier = 1.0;
+	switch (height_multiplier_channel) {
+		case HEIGHT_MULTIPLIER_CHANNEL_LUMINANCE:
+			texture_multiplier = p_color.get_luminance();
+			break;
+		case HEIGHT_MULTIPLIER_CHANNEL_RED:
+			texture_multiplier = p_color.r;
+			break;
+		case HEIGHT_MULTIPLIER_CHANNEL_GREEN:
+			texture_multiplier = p_color.g;
+			break;
+		case HEIGHT_MULTIPLIER_CHANNEL_BLUE:
+			texture_multiplier = p_color.b;
+			break;
+		case HEIGHT_MULTIPLIER_CHANNEL_ALPHA:
+			texture_multiplier = p_color.a;
+			break;
+		case HEIGHT_MULTIPLIER_CHANNEL_NONE:
+		default:
+			break;
+	}
+
+	return CLAMP(value * CLAMP(texture_multiplier, real_t(0.0), real_t(1.0)) * height_multiplier, real_t(0.0), real_t(1.0));
+}
+
 CSGBrush *CSGHeightMap3D::_build_cell_grid_brush() {
 	if (height_map.is_null()) {
 		return memnew(CSGBrush);
@@ -3519,22 +3569,6 @@ CSGBrush *CSGHeightMap3D::_build_cell_grid_brush() {
 		z_positions.write[z] = -size.z * 0.5 + size.z * real_t(pixel_z) / region_height;
 	}
 
-	auto sample_color = [this](const Color &p_color) -> real_t {
-		switch (height_channel) {
-			case HEIGHT_CHANNEL_RED:
-				return p_color.r;
-			case HEIGHT_CHANNEL_GREEN:
-				return p_color.g;
-			case HEIGHT_CHANNEL_BLUE:
-				return p_color.b;
-			case HEIGHT_CHANNEL_ALPHA:
-				return p_color.a;
-			case HEIGHT_CHANNEL_LUMINANCE:
-			default:
-				return p_color.get_luminance();
-		}
-	};
-
 	const real_t bottom_y = -size.y * 0.5;
 	const real_t minimum_top_y = bottom_y + MIN(base_thickness, size.y);
 	const real_t maximum_top_y = size.y * 0.5;
@@ -3547,10 +3581,7 @@ CSGBrush *CSGHeightMap3D::_build_cell_grid_brush() {
 		for (int x = 0; x < grid_width; x++) {
 			const int sample_x = effective_region.position.x + MIN(x * sampling_step + sampling_step / 2, region_width - 1);
 			const int sample_z = effective_region.position.y + MIN(z * sampling_step + sampling_step / 2, region_height - 1);
-			real_t value = CLAMP(sample_color(image->get_pixel(sample_x, sample_z)), real_t(0.0), real_t(1.0));
-			if (invert_height) {
-				value = 1.0 - value;
-			}
+			const real_t value = _sample_height_value(image->get_pixel(sample_x, sample_z));
 			int layer_id = 0;
 			if (height_steps > 1) {
 				layer_id = CLAMP(int(Math::round(value * (height_steps - 1))), 0, height_steps - 1);
@@ -3823,22 +3854,6 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 		z_positions.write[z] = -size.z * 0.5 + size.z * real_t(pixel_z) / region_height;
 	}
 
-	auto sample_color = [this](const Color &p_color) -> real_t {
-		switch (height_channel) {
-			case HEIGHT_CHANNEL_RED:
-				return p_color.r;
-			case HEIGHT_CHANNEL_GREEN:
-				return p_color.g;
-			case HEIGHT_CHANNEL_BLUE:
-				return p_color.b;
-			case HEIGHT_CHANNEL_ALPHA:
-				return p_color.a;
-			case HEIGHT_CHANNEL_LUMINANCE:
-			default:
-				return p_color.get_luminance();
-		}
-	};
-
 	const real_t bottom_y = -size.y * 0.5;
 	const real_t minimum_top_y = bottom_y + MIN(base_thickness, size.y);
 	const real_t maximum_top_y = size.y * 0.5;
@@ -3850,10 +3865,7 @@ CSGBrush *CSGHeightMap3D::_build_contour_layers_brush() {
 		for (int x = 0; x < grid_width; x++) {
 			const int sample_x = effective_region.position.x + MIN(x * sampling_step + sampling_step / 2, region_width - 1);
 			const int sample_z = effective_region.position.y + MIN(z * sampling_step + sampling_step / 2, region_height - 1);
-			real_t value = CLAMP(sample_color(image->get_pixel(sample_x, sample_z)), real_t(0.0), real_t(1.0));
-			if (invert_height) {
-				value = 1.0 - value;
-			}
+			const real_t value = _sample_height_value(image->get_pixel(sample_x, sample_z));
 			real_t height;
 			if (height_steps > 1) {
 				const int layer_id = CLAMP(int(Math::round(value * (height_steps - 1))), 0, height_steps - 1);
@@ -4087,22 +4099,6 @@ CSGBrush *CSGHeightMap3D::_build_direct_contour_mesh_brush() {
 		z_positions.write[z] = -size.z * 0.5 + size.z * real_t(pixel_z) / region_height;
 	}
 
-	auto sample_color = [this](const Color &p_color) -> real_t {
-		switch (height_channel) {
-			case HEIGHT_CHANNEL_RED:
-				return p_color.r;
-			case HEIGHT_CHANNEL_GREEN:
-				return p_color.g;
-			case HEIGHT_CHANNEL_BLUE:
-				return p_color.b;
-			case HEIGHT_CHANNEL_ALPHA:
-				return p_color.a;
-			case HEIGHT_CHANNEL_LUMINANCE:
-			default:
-				return p_color.get_luminance();
-		}
-	};
-
 	const real_t bottom_y = -size.y * 0.5;
 	const real_t minimum_top_y = bottom_y + MIN(base_thickness, size.y);
 	const real_t maximum_top_y = size.y * 0.5;
@@ -4114,10 +4110,7 @@ CSGBrush *CSGHeightMap3D::_build_direct_contour_mesh_brush() {
 		for (int x = 0; x < grid_width; x++) {
 			const int sample_x = effective_region.position.x + MIN(x * sampling_step + sampling_step / 2, region_width - 1);
 			const int sample_z = effective_region.position.y + MIN(z * sampling_step + sampling_step / 2, region_height - 1);
-			real_t value = CLAMP(sample_color(image->get_pixel(sample_x, sample_z)), real_t(0.0), real_t(1.0));
-			if (invert_height) {
-				value = 1.0 - value;
-			}
+			const real_t value = _sample_height_value(image->get_pixel(sample_x, sample_z));
 			real_t height;
 			if (height_steps > 1) {
 				const int layer_id = CLAMP(int(Math::round(value * (height_steps - 1))), 0, height_steps - 1);
@@ -4310,6 +4303,10 @@ void CSGHeightMap3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_size"), &CSGHeightMap3D::get_size);
 	ClassDB::bind_method(D_METHOD("set_height_channel", "channel"), &CSGHeightMap3D::set_height_channel);
 	ClassDB::bind_method(D_METHOD("get_height_channel"), &CSGHeightMap3D::get_height_channel);
+	ClassDB::bind_method(D_METHOD("set_height_multiplier_channel", "channel"), &CSGHeightMap3D::set_height_multiplier_channel);
+	ClassDB::bind_method(D_METHOD("get_height_multiplier_channel"), &CSGHeightMap3D::get_height_multiplier_channel);
+	ClassDB::bind_method(D_METHOD("set_height_multiplier", "multiplier"), &CSGHeightMap3D::set_height_multiplier);
+	ClassDB::bind_method(D_METHOD("get_height_multiplier"), &CSGHeightMap3D::get_height_multiplier);
 	ClassDB::bind_method(D_METHOD("set_generation_mode", "mode"), &CSGHeightMap3D::set_generation_mode);
 	ClassDB::bind_method(D_METHOD("get_generation_mode"), &CSGHeightMap3D::get_generation_mode);
 	ClassDB::bind_method(D_METHOD("set_height_steps", "steps"), &CSGHeightMap3D::set_height_steps);
@@ -4338,6 +4335,8 @@ void CSGHeightMap3D::_bind_methods() {
 	ADD_GROUP("", "");
 	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "size", PROPERTY_HINT_NONE, "suffix:m"), "set_size", "get_size");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "height_channel", PROPERTY_HINT_ENUM, "Luminance,Red,Green,Blue,Alpha"), "set_height_channel", "get_height_channel");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "height_multiplier_channel", PROPERTY_HINT_ENUM, "None,Luminance,Red,Green,Blue,Alpha"), "set_height_multiplier_channel", "get_height_multiplier_channel");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "height_multiplier", PROPERTY_HINT_RANGE, "0,8,0.01,or_greater"), "set_height_multiplier", "get_height_multiplier");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "generation_mode", PROPERTY_HINT_ENUM, "Cell Grid,Contour Layers,Direct Contour Mesh"), "set_generation_mode", "get_generation_mode");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "height_steps", PROPERTY_HINT_RANGE, "0,256,1,or_greater"), "set_height_steps", "get_height_steps");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "sampling_step", PROPERTY_HINT_RANGE, "1,64,1,or_greater"), "set_sampling_step", "get_sampling_step");
@@ -4355,6 +4354,12 @@ void CSGHeightMap3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(HEIGHT_CHANNEL_GREEN);
 	BIND_ENUM_CONSTANT(HEIGHT_CHANNEL_BLUE);
 	BIND_ENUM_CONSTANT(HEIGHT_CHANNEL_ALPHA);
+	BIND_ENUM_CONSTANT(HEIGHT_MULTIPLIER_CHANNEL_NONE);
+	BIND_ENUM_CONSTANT(HEIGHT_MULTIPLIER_CHANNEL_LUMINANCE);
+	BIND_ENUM_CONSTANT(HEIGHT_MULTIPLIER_CHANNEL_RED);
+	BIND_ENUM_CONSTANT(HEIGHT_MULTIPLIER_CHANNEL_GREEN);
+	BIND_ENUM_CONSTANT(HEIGHT_MULTIPLIER_CHANNEL_BLUE);
+	BIND_ENUM_CONSTANT(HEIGHT_MULTIPLIER_CHANNEL_ALPHA);
 	BIND_ENUM_CONSTANT(GENERATION_CELL_GRID);
 	BIND_ENUM_CONSTANT(GENERATION_CONTOUR_LAYERS);
 	BIND_ENUM_CONSTANT(GENERATION_DIRECT_CONTOUR_MESH);
@@ -4425,6 +4430,33 @@ void CSGHeightMap3D::set_height_channel(HeightChannel p_channel) {
 
 CSGHeightMap3D::HeightChannel CSGHeightMap3D::get_height_channel() const {
 	return height_channel;
+}
+
+void CSGHeightMap3D::set_height_multiplier_channel(HeightMultiplierChannel p_channel) {
+	ERR_FAIL_INDEX(int(p_channel), 6);
+	if (height_multiplier_channel == p_channel) {
+		return;
+	}
+	height_multiplier_channel = p_channel;
+	_make_dirty();
+}
+
+CSGHeightMap3D::HeightMultiplierChannel CSGHeightMap3D::get_height_multiplier_channel() const {
+	return height_multiplier_channel;
+}
+
+void CSGHeightMap3D::set_height_multiplier(real_t p_multiplier) {
+	ERR_FAIL_COND(!Math::is_finite(p_multiplier));
+	p_multiplier = MAX(p_multiplier, real_t(0.0));
+	if (Math::is_equal_approx(height_multiplier, p_multiplier)) {
+		return;
+	}
+	height_multiplier = p_multiplier;
+	_make_dirty();
+}
+
+real_t CSGHeightMap3D::get_height_multiplier() const {
+	return height_multiplier;
 }
 
 void CSGHeightMap3D::set_generation_mode(GenerationMode p_mode) {

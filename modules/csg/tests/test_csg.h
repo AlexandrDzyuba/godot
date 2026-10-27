@@ -377,6 +377,8 @@ TEST_CASE("[SceneTree][CSG] CSGHeightMap3D builds one closed stepped solid") {
 	height_map->set_size(Vector3(4, 2, 2));
 	CHECK(height_map->get_generation_mode() == CSGHeightMap3D::GENERATION_CONTOUR_LAYERS);
 	CHECK(height_map->get_height_steps() == 16);
+	CHECK(height_map->get_height_multiplier_channel() == CSGHeightMap3D::HEIGHT_MULTIPLIER_CHANNEL_NONE);
+	CHECK(height_map->get_height_multiplier() == doctest::Approx(1.0));
 	SceneTree::get_singleton()->get_root()->add_child(height_map);
 
 	const Vector<Vector3> faces = height_map->get_brush_faces();
@@ -418,6 +420,49 @@ TEST_CASE("[SceneTree][CSG] CSGHeightMap3D builds one closed stepped solid") {
 	REQUIRE(geometry.is_valid());
 	for (uint8_t boundary : geometry->get_boundary_edges()) {
 		CHECK(boundary == 0);
+	}
+
+	SceneTree::get_singleton()->get_root()->remove_child(height_map);
+	memdelete(height_map);
+}
+
+TEST_CASE("[SceneTree][CSG] CSGHeightMap3D modulates height from another texture channel") {
+	Ref<Image> image = memnew(Image(2, 1, false, Image::FORMAT_RGBAF));
+	image->set_pixel(0, 0, Color(1.0, 0.25, 0.0, 1.0));
+	image->set_pixel(1, 0, Color(1.0, 1.0, 0.0, 1.0));
+	Ref<ImageTexture> texture = ImageTexture::create_from_image(image);
+
+	CSGHeightMap3D *height_map = memnew(CSGHeightMap3D);
+	height_map->set_height_map(texture);
+	height_map->set_size(Vector3(2, 4, 1));
+	height_map->set_base_thickness(0.1);
+	height_map->set_height_steps(0);
+	height_map->set_height_channel(CSGHeightMap3D::HEIGHT_CHANNEL_RED);
+	height_map->set_height_multiplier_channel(CSGHeightMap3D::HEIGHT_MULTIPLIER_CHANNEL_GREEN);
+	height_map->set_height_multiplier(1.0);
+	CHECK(height_map->get_height_multiplier_channel() == CSGHeightMap3D::HEIGHT_MULTIPLIER_CHANNEL_GREEN);
+	CHECK(height_map->get_height_multiplier() == doctest::Approx(1.0));
+	SceneTree::get_singleton()->get_root()->add_child(height_map);
+
+	for (int mode = CSGHeightMap3D::GENERATION_CELL_GRID; mode <= CSGHeightMap3D::GENERATION_DIRECT_CONTOUR_MESH; mode++) {
+		height_map->set_generation_mode(CSGHeightMap3D::GenerationMode(mode));
+		const Vector<Vector3> faces = height_map->get_brush_faces();
+		REQUIRE_FALSE(faces.is_empty());
+		bool found_modulated_height = false;
+		real_t highest_y = faces[0].y;
+		for (const Vector3 &vertex : faces) {
+			found_modulated_height |= Math::is_equal_approx(vertex.y, real_t(-0.925));
+			highest_y = MAX(highest_y, vertex.y);
+		}
+		CHECK(found_modulated_height);
+		CHECK(highest_y == doctest::Approx(2.0));
+	}
+
+	height_map->set_height_multiplier_channel(CSGHeightMap3D::HEIGHT_MULTIPLIER_CHANNEL_NONE);
+	const Vector<Vector3> unmodulated_faces = height_map->get_brush_faces();
+	REQUIRE_FALSE(unmodulated_faces.is_empty());
+	for (const Vector3 &vertex : unmodulated_faces) {
+		CHECK_FALSE(Math::is_equal_approx(vertex.y, real_t(-0.925)));
 	}
 
 	SceneTree::get_singleton()->get_root()->remove_child(height_map);

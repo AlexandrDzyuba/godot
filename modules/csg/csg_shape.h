@@ -361,6 +361,14 @@ public:
 		HEIGHT_CHANNEL_BLUE,
 		HEIGHT_CHANNEL_ALPHA,
 	};
+	enum HeightMultiplierChannel {
+		HEIGHT_MULTIPLIER_CHANNEL_NONE,
+		HEIGHT_MULTIPLIER_CHANNEL_LUMINANCE,
+		HEIGHT_MULTIPLIER_CHANNEL_RED,
+		HEIGHT_MULTIPLIER_CHANNEL_GREEN,
+		HEIGHT_MULTIPLIER_CHANNEL_BLUE,
+		HEIGHT_MULTIPLIER_CHANNEL_ALPHA,
+	};
 	enum GenerationMode {
 		GENERATION_CELL_GRID,
 		GENERATION_CONTOUR_LAYERS,
@@ -382,12 +390,15 @@ private:
 	Rect2i _get_effective_region(int p_image_width, int p_image_height) const;
 	Vector<real_t> _build_layer_heights(real_t p_minimum_top, real_t p_maximum_top) const;
 	real_t _get_layer_slope_width(int p_layer) const;
+	real_t _sample_height_value(const Color &p_color) const;
 
 	Ref<Texture2D> height_map;
 	bool region_enabled = false;
 	Rect2i region_rect;
 	Vector3 size = Vector3(10, 2, 10);
 	HeightChannel height_channel = HEIGHT_CHANNEL_LUMINANCE;
+	HeightMultiplierChannel height_multiplier_channel = HEIGHT_MULTIPLIER_CHANNEL_NONE;
+	real_t height_multiplier = 1.0;
 	GenerationMode generation_mode = GENERATION_CONTOUR_LAYERS;
 	int height_steps = 16;
 	int sampling_step = 1;
@@ -416,6 +427,10 @@ public:
 	Vector3 get_size() const;
 	void set_height_channel(HeightChannel p_channel);
 	HeightChannel get_height_channel() const;
+	void set_height_multiplier_channel(HeightMultiplierChannel p_channel);
+	HeightMultiplierChannel get_height_multiplier_channel() const;
+	void set_height_multiplier(real_t p_multiplier);
+	real_t get_height_multiplier() const;
 	void set_generation_mode(GenerationMode p_mode);
 	GenerationMode get_generation_mode() const;
 	void set_height_steps(int p_steps);
@@ -439,6 +454,7 @@ public:
 };
 
 VARIANT_ENUM_CAST(CSGHeightMap3D::HeightChannel)
+VARIANT_ENUM_CAST(CSGHeightMap3D::HeightMultiplierChannel)
 VARIANT_ENUM_CAST(CSGHeightMap3D::GenerationMode)
 
 class CSGCylinder3D : public CSGPrimitive3D {
